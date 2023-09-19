@@ -1,6 +1,10 @@
 const std = @import("std");
 const storage = @import("storage.zig");
+const entity_ = @import("entity.zig");
 const Allocator = std.mem.Allocator;
+const Entity = entity_.Entity;
+const EntityId = entity_.EntityId;
+const EntityMetadata = entity_.EntityMetadata;
 const ErasedSparseStorage = storage.ErasedSparseStorage;
 const SparseStorage = storage.SparseStorage;
 const ErasedDenseStorage = storage.ErasedDenseStorage;
@@ -8,27 +12,6 @@ const DenseStorage = storage.DenseStorage;
 const ComponentHash = storage.ComponentHash;
 const ArchetypeHash = storage.ArchetypeHash;
 const EMPTY_ARCHETYPE_HASH = storage.EMPTY_ARCHETYPE_HASH;
-
-/// Represents the entity index (ignoring generation).
-const EntityId = usize;
-
-/// An entity in the ECS.
-const Entity = struct {
-    id: EntityId,
-    generation: usize = 0,
-};
-
-/// Extra information about an entity and its location in the various storages.
-const EntityMetadata = struct {
-    /// Hash of the archetype the entity belongs to.
-    archetype_hash: ArchetypeHash,
-
-    /// Column in the `DenseStorage` where the entity's component values are stored.
-    ///
-    /// ## Note
-    /// The location of the entity in the `SparseStorage` is the same as the entity's ID.
-    dense_location: usize,
-};
 
 // NOTE: Component must have a `const StorageType: storage.StorageType` member
 //
@@ -58,6 +41,9 @@ const World = struct {
     entity_map: std.AutoArrayHashMapUnmanaged(Entity, EntityMetadata),
 
     /// Current generation of entities.
+    ///
+    /// ## Note
+    /// This gets "bumped" everytime an entity is removed from the `World`.
     current_generation: usize,
 
     /// Creates new `World`.
@@ -104,9 +90,20 @@ const World = struct {
         }, EntityMetadata{
             .archetype_hash = EMPTY_ARCHETYPE_HASH,
             .dense_location = 0,
+            .component_types = .{},
         });
 
         return entity_id;
+    }
+
+    /// Checks if the entity described by `entity_info` has a component with the specified hash.
+    fn entityHasComponent(entity_info: EntityMetadata, component_hash: ComponentHash) bool {
+        for (entity_info.component_types.items) |hash| {
+            if (hash == component_hash) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// Adds a component value to the specified entity.
@@ -168,11 +165,20 @@ const World = struct {
             },
 
             .Dense => {
-                // TODO: Calculate new archetype hash for the entity
+                // Calculate new archetype hash for the entity
+                const entity_info: EntityMetadata = self.entity_map.get(Entity{
+                    .id = entity,
+                    .generation = self.current_generation,
+                }).?;
+                const old_hash = entity_info.archetype_hash;
+                const new_hash = if (entityHasComponent(entity_info, component_hash))
+                    old_hash
+                else
+                    old_hash ^ component_hash;
 
                 // TODO: Add component to pre-existing storage
                 //  - Move from old archetype if necessary
-                if (self.dense_storages.contains(component_hash)) {}
+                if (self.dense_storages.contains(new_hash)) {}
 
                 // TODO: Initialize component storage if one doesn't exist
             },
@@ -210,14 +216,23 @@ test "Can add component to entity" {
 
     var world = World.init(TAlloc);
     defer world.deinit();
-
     const entity = try world.spawnEntity();
+
+    // Add `sparse` component
     const Position = struct {
         const StorageType: storage.StorageType = .Sparse;
         x: u8,
     };
     const pos = Position{ .x = 10 };
     try world.addComponentToEntity(Position, pos, entity);
-
     try testing.expectEqual(world.sparse_storages.count(), 1);
+
+    // Add `dense` component
+    const Velocity = struct {
+        const StorageType: storage.StorageType = .Dense;
+        x: u8,
+    };
+    const vel = Velocity{ .x = 10 };
+    try world.addComponentToEntity(Velocity, vel, entity);
+    try testing.expectEqual(world.dense_storages.count(), 1);
 }

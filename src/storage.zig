@@ -1,5 +1,7 @@
 const std = @import("std");
+const entity = @import("entity.zig");
 const Allocator = std.mem.Allocator;
+const EntityMetadata = entity.EntityMetadata;
 
 /// Represents the type of storage.
 ///
@@ -100,6 +102,12 @@ pub fn DenseStorage(comptime Component: type) type {
         pub fn deinit(self: *Self, allocator: Allocator) void {
             self.components.deinit(allocator);
             self.total_entites = 0;
+        }
+
+        pub fn moveEntity(self: *Self, other: *Self, entity_column: usize) !EntityMetadata {
+            _ = entity_column;
+            _ = other;
+            _ = self;
         }
     };
 }
