@@ -7,14 +7,28 @@ const ErasedDenseStorage = storage.ErasedDenseStorage;
 const DenseStorage = storage.DenseStorage;
 const ComponentHash = storage.ComponentHash;
 const ArchetypeHash = storage.ArchetypeHash;
+const EMPTY_ARCHETYPE_HASH = storage.EMPTY_ARCHETYPE_HASH;
 
-/// Represents an entity in the ECS.
-const Entity = usize;
+/// Represents the entity index (ignoring generation).
+const EntityId = usize;
 
-// const EntityMetadata = struct {
-//     generation: usize = 0,
-//     index: usize,
-// };
+/// An entity in the ECS.
+const Entity = struct {
+    id: EntityId,
+    generation: usize = 0,
+};
+
+/// Extra information about an entity and its location in the various storages.
+const EntityMetadata = struct {
+    /// Hash of the archetype the entity belongs to.
+    archetype_hash: ArchetypeHash,
+
+    /// Column in the `DenseStorage` where the entity's component values are stored.
+    ///
+    /// ## Note
+    /// The location of the entity in the `SparseStorage` is the same as the entity's ID.
+    dense_location: usize,
+};
 
 // NOTE: Component must have a `const StorageType: storage.StorageType` member
 //
@@ -28,13 +42,23 @@ const Entity = usize;
 const World = struct {
     const Self = @This();
 
+    /// Used for internal allocations in the ECS.
     allocator: Allocator,
 
+    /// Total number of entities in the world.
     num_entities: usize,
 
+    /// Storages for sparse component types.
     sparse_storages: std.AutoArrayHashMapUnmanaged(ComponentHash, ErasedSparseStorage),
 
+    /// Storages for dense component types (archetypes).
     dense_storages: std.AutoArrayHashMapUnmanaged(ArchetypeHash, ErasedDenseStorage),
+
+    /// Maps entities to their metadata/locations/indicies.
+    entity_map: std.AutoArrayHashMapUnmanaged(Entity, EntityMetadata),
+
+    /// Current generation of entities.
+    current_generation: usize,
 
     /// Creates new `World`.
     fn init(allocator: Allocator) Self {
@@ -43,6 +67,8 @@ const World = struct {
             .num_entities = 0,
             .sparse_storages = .{},
             .dense_storages = .{},
+            .entity_map = .{},
+            .current_generation = 0,
         };
     }
 
@@ -61,20 +87,33 @@ const World = struct {
             erased_storage.deinit(erased_storage.ptr, self.allocator);
         }
         self.dense_storages.deinit(self.allocator);
+
+        // Free entity map
+        self.entity_map.deinit(self.allocator);
     }
 
     /// Adds a new (empty) entity to the world.
-    fn spawnEntity(self: *Self) Entity {
-        const entity = self.num_entities;
+    fn spawnEntity(self: *Self) !EntityId {
+        const entity_id = self.num_entities;
         self.num_entities += 1;
-        return entity;
+
+        //  Add entity data to the entity map
+        try self.entity_map.put(self.allocator, Entity{
+            .id = entity_id,
+            .generation = self.current_generation,
+        }, EntityMetadata{
+            .archetype_hash = EMPTY_ARCHETYPE_HASH,
+            .dense_location = 0,
+        });
+
+        return entity_id;
     }
 
     /// Adds a component value to the specified entity.
     ///
     /// ## Note
     /// This will create and register a new component storage if one doen't exist.
-    fn addComponentToEntity(self: *Self, comptime Component: type, component: Component, entity: Entity) !void {
+    fn addComponentToEntity(self: *Self, comptime Component: type, component: Component, entity: EntityId) !void {
         const component_hash: ComponentHash = std.hash_map.hashString(@typeName(Component));
 
         switch (Component.StorageType) {
@@ -160,7 +199,7 @@ test "Can spawn new entity" {
     var world = World.init(TAlloc);
     defer world.deinit();
 
-    const entity = world.spawnEntity();
+    const entity = try world.spawnEntity();
     try testing.expectEqual(entity, 0);
     try testing.expectEqual(world.num_entities, 1);
 }
@@ -172,7 +211,7 @@ test "Can add component to entity" {
     var world = World.init(TAlloc);
     defer world.deinit();
 
-    const entity = world.spawnEntity();
+    const entity = try world.spawnEntity();
     const Position = struct {
         const StorageType: storage.StorageType = .Sparse;
         x: u8,
