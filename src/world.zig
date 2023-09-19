@@ -1,12 +1,20 @@
 const std = @import("std");
 const storage = @import("storage.zig");
 const Allocator = std.mem.Allocator;
-const AutoArrayHashMapUnmanaged = std.AutoArrayHashMapUnmanaged;
 const ErasedSparseStorage = storage.ErasedSparseStorage;
 const SparseStorage = storage.SparseStorage;
+const ErasedDenseStorage = storage.ErasedDenseStorage;
+const DenseStorage = storage.DenseStorage;
+const ComponentHash = storage.ComponentHash;
+const ArchetypeHash = storage.ArchetypeHash;
 
 /// Represents an entity in the ECS.
 const Entity = usize;
+
+// const EntityMetadata = struct {
+//     generation: usize = 0,
+//     index: usize,
+// };
 
 // NOTE: Component must have a `const StorageType: storage.StorageType` member
 //
@@ -15,38 +23,44 @@ const Entity = usize;
 // };
 //
 
-/// Represents the hash for a component type.
-const ComponentHash = u64;
-
 /// The underyling world that contains all entities, components, and resources
 /// for the ECS.
 const World = struct {
     const Self = @This();
 
     allocator: Allocator,
-    num_entities: usize,
-    sparse_storages: AutoArrayHashMapUnmanaged(ComponentHash, ErasedSparseStorage),
 
-    /// Create new `World`.
+    num_entities: usize,
+
+    sparse_storages: std.AutoArrayHashMapUnmanaged(ComponentHash, ErasedSparseStorage),
+
+    dense_storages: std.AutoArrayHashMapUnmanaged(ArchetypeHash, ErasedDenseStorage),
+
+    /// Creates new `World`.
     fn init(allocator: Allocator) Self {
         return .{
             .allocator = allocator,
             .num_entities = 0,
             .sparse_storages = .{},
+            .dense_storages = .{},
         };
     }
 
-    /// Free up memory used by `World`.
+    /// Frees up memory used by `World`.
     fn deinit(self: *Self) void {
+        self.num_entities = 0;
+
         // Remove all sparse storages
         for (self.sparse_storages.values()) |erased_storage| {
             erased_storage.deinit(erased_storage.ptr, self.allocator);
         }
         self.sparse_storages.deinit(self.allocator);
 
-        // TODO: Remove all dense storages
-
-        self.num_entities = 0;
+        // Remove all dense storages
+        for (self.dense_storages.values()) |erased_storage| {
+            erased_storage.deinit(erased_storage.ptr, self.allocator);
+        }
+        self.dense_storages.deinit(self.allocator);
     }
 
     /// Adds a new (empty) entity to the world.
@@ -68,7 +82,7 @@ const World = struct {
                 // Add component to pre-existing storage
                 if (self.sparse_storages.contains(component_hash)) {
                     const erased_storage: *ErasedSparseStorage = self.sparse_storages.getPtr(component_hash).?;
-                    var component_storage = ErasedSparseStorage.toConcreteStorage(erased_storage.ptr, Component);
+                    var component_storage = ErasedSparseStorage.toSparseStorage(erased_storage.ptr, Component);
 
                     // Add new entry to storage if a new entity has been added to the world
                     if (component_storage.total_entites < self.num_entities) {
@@ -83,7 +97,7 @@ const World = struct {
                     return;
                 }
 
-                // Init component storage if one doesn't exist
+                // Initialize component storage if one doesn't exist
                 {
                     // Create new `SparseStorage` w/ `num_entities` entries
                     var new_storage: *SparseStorage(Component) = try self.allocator.create(SparseStorage(Component));
@@ -101,7 +115,7 @@ const World = struct {
                         .ptr = new_storage,
                         .deinit = (struct {
                             pub fn deinit(erased: *anyopaque, allocator: Allocator) void {
-                                var ptr = ErasedSparseStorage.toConcreteStorage(erased, Component);
+                                var ptr = ErasedSparseStorage.toSparseStorage(erased, Component);
                                 ptr.deinit(allocator);
                                 allocator.destroy(ptr);
                             }
@@ -113,7 +127,16 @@ const World = struct {
                     return;
                 }
             },
-            .Dense => {},
+
+            .Dense => {
+                // TODO: Calculate new archetype hash for the entity
+
+                // TODO: Add component to pre-existing storage
+                //  - Move from old archetype if necessary
+                if (self.dense_storages.contains(component_hash)) {}
+
+                // TODO: Initialize component storage if one doesn't exist
+            },
         }
     }
 };
