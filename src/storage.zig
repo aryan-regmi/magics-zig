@@ -1,7 +1,7 @@
 const std = @import("std");
-const entity = @import("entity.zig");
+// const entity = @import("entity.zig");
 const Allocator = std.mem.Allocator;
-const EntityMetadata = entity.EntityMetadata;
+// const EntityMetadata = entity.EntityMetadata;
 
 /// Represents the type of storage.
 ///
@@ -104,10 +104,18 @@ pub fn DenseStorage(comptime Component: type) type {
             self.total_entites = 0;
         }
 
-        pub fn moveEntity(self: *Self, other: *Self, entity_column: usize) !EntityMetadata {
-            _ = entity_column;
-            _ = other;
-            _ = self;
+        /// Moves an entity from `this`/`self` dense storage to the `other` storage.
+        pub fn moveEntity(self: *Self, other: *Self, src_idx: usize, dst_idx: usize) void {
+            for (self.components.keys()) |component_type| {
+                if (other.components.contains(component_type)) {
+                    var component_vals = self.components.getPtr(component_type).?;
+                    var val_to_move = component_vals.items[src_idx];
+                    component_vals.items[src_idx] = null;
+
+                    var other_vals = other.components.getPtr(component_type).?;
+                    other_vals.items[dst_idx] = val_to_move;
+                }
+            }
         }
     };
 }

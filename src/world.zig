@@ -176,9 +176,14 @@ const World = struct {
                 else
                     old_hash ^ component_hash;
 
-                // TODO: Add component to pre-existing storage
-                //  - Move from old archetype if necessary
-                if (self.dense_storages.contains(new_hash)) {}
+                // Add component to pre-existing storage
+                if (self.dense_storages.contains(new_hash)) {
+                    if (new_hash != old_hash) {
+                        // TODO: Move entity to other archetype
+                        //
+                        // TODO: Get source and dest indicies
+                    }
+                }
 
                 // TODO: Initialize component storage if one doesn't exist
             },
