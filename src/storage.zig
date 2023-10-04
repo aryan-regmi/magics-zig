@@ -74,48 +74,34 @@ pub const ErasedSparseStorage = struct {
     /// Frees memory used by the underyling `SparseStorage`.
     deinit: *const fn (ptr: *anyopaque, allocator: Allocator) void,
 
+    /// Adds an empty (`null`) entry to the component list.
+    ///
+    /// This indicates that a new entity has been added to the world.
+    addEmptyEntry: *const fn (ptr: *anyopaque, allocator: Allocator) anyerror!void,
+
     /// Converts the type-erased storage to a typed `SparseStorage(Component)`.
     pub fn toSparseStorage(ptr: *anyopaque, comptime Component: type) *SparseStorage(Component) {
         return @ptrCast(@alignCast(ptr));
     }
 };
 
-/// Archetype storage that emulates an in-memory database to store groups of
-/// component values.
-///
-/// This storage type is optimized for fast iterations, but has slower
-/// insertions and deletions than `SparseStorage`.
+/// Storage type that stores component values densely to optimize iteration rather than insertion/deletion.
 pub fn DenseStorage(comptime Component: type) type {
     return struct {
         const Self = @This();
 
-        /// The hash for the archetype (uniquely identifies different archetypes).
-        hash: ArchetypeHash,
-
         /// Total number of entites in the storage.
         total_entites: usize,
 
-        /// The densely stored component values for each of the component types in the archetype.
-        components: std.AutoArrayHashMapUnmanaged(ComponentHash, std.ArrayListUnmanaged(Component)),
+        /// The densely stored component values/data.
+        ///
+        /// Each index represents an entity with a `Component` value: entities without a component value are ignored.
+        components: std.ArrayListUnmanaged(Component),
 
         /// Free the memory used by the `DenseStorage`.
         pub fn deinit(self: *Self, allocator: Allocator) void {
             self.components.deinit(allocator);
             self.total_entites = 0;
-        }
-
-        /// Moves an entity from `this`/`self` dense storage to the `other` storage.
-        pub fn moveEntity(self: *Self, other: *Self, src_idx: usize, dst_idx: usize) void {
-            for (self.components.keys()) |component_type| {
-                if (other.components.contains(component_type)) {
-                    var component_vals = self.components.getPtr(component_type).?;
-                    var val_to_move = component_vals.items[src_idx];
-                    component_vals.items[src_idx] = null;
-
-                    var other_vals = other.components.getPtr(component_type).?;
-                    other_vals.items[dst_idx] = val_to_move;
-                }
-            }
         }
     };
 }
@@ -125,11 +111,51 @@ pub const ErasedDenseStorage = struct {
     /// A pointer to the underyling `DenseStorage`.
     ptr: *anyopaque,
 
+    /// Total number of entites in the storage.
+    total_entites: usize,
+
     /// Frees memory used by the underyling `DenseStorage`.
     deinit: *const fn (ptr: *anyopaque, allocator: Allocator) void,
 
     /// Converts the type-erased storage to a typed `DenseStorage(Component)`.
     pub fn toDenseStorage(ptr: *anyopaque, comptime Component: type) *DenseStorage(Component) {
         return @ptrCast(@alignCast(ptr));
+    }
+};
+
+// Archetype storage that emulates an in-memory database to store groups of
+// component values.
+//
+// This storage type is optimized for fast iterations, but has slower
+// insertions and deletions than `SparseStorage`.
+pub const ArchetypeStorage = struct {
+    const Self = @This();
+    /// The hash for the archetype (uniquely identifies different archetypes).
+    hash: ArchetypeHash,
+
+    /// Total number of entites with this archetype.
+    total_entites: usize,
+
+    /// The densely stored component data for each of the component types in the archetype.
+    dense_components: std.AutoArrayHashMapUnmanaged(ComponentHash, ErasedDenseStorage),
+
+    /// The sparsely stored components for each of the non-dense component types in the archetype.
+    sparse_components: std.AutoArrayHashMapUnmanaged(ComponentHash, *const ErasedSparseStorage),
+
+    /// Moves an entity from `this`/`self` dense storage to the `other` storage.
+    pub fn moveEntity(self: *Self, other: *Self, src_idx: usize, dst_idx: usize) !void {
+        for (self.dense_components.keys()) |component_type| {
+            var component_vals = self.dense_components.getPtr(component_type).?;
+            var val_to_move = component_vals.items[src_idx];
+            component_vals.items[src_idx] = null;
+
+            if (other.dense_components.contains(component_type)) {
+                var other_vals = other.dense_components.getPtr(component_type).?;
+                other_vals.items[dst_idx] = val_to_move;
+            }
+        }
+
+        self.total_entites -= 1;
+        other.total_entites += 1;
     }
 };

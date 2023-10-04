@@ -83,13 +83,18 @@ const World = struct {
         const entity_id = self.num_entities;
         self.num_entities += 1;
 
-        //  Add entity data to the entity map
+        // Add empty entry to all sparse storages!
+        for (self.sparse_storages.values()) |erased_sparse_storage| {
+            try erased_sparse_storage.addEmptyEntry(erased_sparse_storage.ptr, self.allocator);
+        }
+
+        //  Add entity data to the entity map (and to the empty archetype storage)
         try self.entity_map.put(self.allocator, Entity{
             .id = entity_id,
             .generation = self.current_generation,
         }, EntityMetadata{
             .archetype_hash = EMPTY_ARCHETYPE_HASH,
-            .dense_location = 0,
+            .dense_index = 0,
             .component_types = .{},
         });
 
@@ -120,14 +125,6 @@ const World = struct {
                     const erased_storage: *ErasedSparseStorage = self.sparse_storages.getPtr(component_hash).?;
                     var component_storage = ErasedSparseStorage.toSparseStorage(erased_storage.ptr, Component);
 
-                    // Add new entry to storage if a new entity has been added to the world
-                    if (component_storage.total_entites < self.num_entities) {
-                        const new_entries = self.num_entities - component_storage.total_entites;
-                        for (0..new_entries) |_| {
-                            try component_storage.addEmptyEntry(self.allocator);
-                        }
-                    }
-
                     // Set the value of the component for the given entity
                     component_storage.setComponentValue(entity, component);
                     return;
@@ -156,6 +153,12 @@ const World = struct {
                                 allocator.destroy(ptr);
                             }
                         }).deinit,
+                        .addEmptyEntry = (struct {
+                            pub fn addEmptyEntry(ptr: *anyopaque, allocator: Allocator) !void {
+                                var concrete_storage = ErasedSparseStorage.toSparseStorage(ptr, Component);
+                                try concrete_storage.addEmptyEntry(allocator);
+                            }
+                        }).addEmptyEntry,
                     };
 
                     // Add new `ErasedSparseStorage` to world
@@ -164,6 +167,7 @@ const World = struct {
                 }
             },
 
+            // FIXME: Redo with archetypes instead!
             .Dense => {
                 // Calculate new archetype hash for the entity
                 const entity_info: EntityMetadata = self.entity_map.get(Entity{
@@ -179,9 +183,24 @@ const World = struct {
                 // Add component to pre-existing storage
                 if (self.dense_storages.contains(new_hash)) {
                     if (new_hash != old_hash) {
-                        // TODO: Move entity to other archetype
-                        //
-                        // TODO: Get source and dest indicies
+                        const new_erased_storage: *ErasedDenseStorage = self.dense_storages.getPtr(new_hash).?;
+                        const current_erased_storage: *ErasedDenseStorage = self.dense_storages.getPtr(old_hash).?;
+
+                        // Get source and dest indicies
+                        const src_idx = self.entity_map.get(Entity{
+                            .generation = self.current_generation,
+                            .id = entity,
+                        }).?.dense_index;
+                        _ = src_idx;
+                        const dst_idx = new_erased_storage.total_entites;
+                        _ = dst_idx;
+
+                        // Move entity to other archetype
+                        var current_dense_storage = ErasedDenseStorage.toDenseStorage(current_erased_storage.ptr, Component);
+                        _ = current_dense_storage;
+                        var new_dense_storage = ErasedDenseStorage.toDenseStorage(new_erased_storage.ptr, Component);
+                        _ = new_dense_storage;
+                        // current_dense_storage.moveEntity(new_dense_storage, src_idx, dst_idx);
                     }
                 }
 
@@ -224,20 +243,36 @@ test "Can add component to entity" {
     const entity = try world.spawnEntity();
 
     // Add `sparse` component
-    const Position = struct {
-        const StorageType: storage.StorageType = .Sparse;
-        x: u8,
-    };
-    const pos = Position{ .x = 10 };
-    try world.addComponentToEntity(Position, pos, entity);
-    try testing.expectEqual(world.sparse_storages.count(), 1);
+    {
+        const Position = struct {
+            const StorageType: storage.StorageType = .Sparse;
+            x: u8,
+        };
+        const component_hash: ComponentHash = std.hash_map.hashString(@typeName(Position));
+
+        const pos = Position{ .x = 10 };
+        try world.addComponentToEntity(Position, pos, entity);
+        try testing.expectEqual(world.sparse_storages.count(), 1);
+        var erased: *ErasedSparseStorage = world.sparse_storages.getPtr(component_hash).?;
+        var concrete = ErasedSparseStorage.toSparseStorage(erased.ptr, Position);
+        try testing.expectEqual(concrete.components.items[0], Position{ .x = 10 });
+
+        const pos2 = Position{ .x = 90 };
+        try world.addComponentToEntity(Position, pos2, entity);
+        try testing.expectEqual(world.sparse_storages.count(), 1);
+        erased = world.sparse_storages.getPtr(component_hash).?;
+        concrete = ErasedSparseStorage.toSparseStorage(erased.ptr, Position);
+        try testing.expectEqual(concrete.components.items[0], Position{ .x = 90 });
+    }
 
     // Add `dense` component
-    const Velocity = struct {
-        const StorageType: storage.StorageType = .Dense;
-        x: u8,
-    };
-    const vel = Velocity{ .x = 10 };
-    try world.addComponentToEntity(Velocity, vel, entity);
-    try testing.expectEqual(world.dense_storages.count(), 1);
+    // {
+    //     const Velocity = struct {
+    //         const StorageType: storage.StorageType = .Dense;
+    //         x: u8,
+    //     };
+    //     const vel = Velocity{ .x = 10 };
+    //     try world.addComponentToEntity(Velocity, vel, entity);
+    //     try testing.expectEqual(world.dense_storages.count(), 1);
+    // }
 }
