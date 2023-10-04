@@ -142,6 +142,18 @@ pub const ArchetypeStorage = struct {
     /// The sparsely stored components for each of the non-dense component types in the archetype.
     sparse_components: std.AutoArrayHashMapUnmanaged(ComponentHash, *const ErasedSparseStorage),
 
+    /// Free the memory used by the `ArchetypeStorage`.
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        // Deinit ErasedDenseStorages
+        for (self.dense_components.values()) |dense_storage| {
+            dense_storage.deinit(dense_storage.ptr, allocator);
+        }
+
+        self.dense_components.deinit(allocator);
+        self.sparse_components.deinit(allocator);
+        self.total_entites = 0;
+    }
+
     /// Moves an entity from `this`/`self` dense storage to the `other` storage.
     pub fn moveEntity(self: *Self, other: *Self, src_idx: usize, dst_idx: usize) !void {
         for (self.dense_components.keys()) |component_type| {

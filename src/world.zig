@@ -8,7 +8,7 @@ const EntityMetadata = entity_.EntityMetadata;
 const ErasedSparseStorage = storage.ErasedSparseStorage;
 const SparseStorage = storage.SparseStorage;
 const ErasedDenseStorage = storage.ErasedDenseStorage;
-const DenseStorage = storage.DenseStorage;
+const ArchetypeStorage = storage.ArchetypeStorage;
 const ComponentHash = storage.ComponentHash;
 const ArchetypeHash = storage.ArchetypeHash;
 const EMPTY_ARCHETYPE_HASH = storage.EMPTY_ARCHETYPE_HASH;
@@ -35,16 +35,10 @@ const World = struct {
     sparse_storages: std.AutoArrayHashMapUnmanaged(ComponentHash, ErasedSparseStorage),
 
     /// Storages for dense component types (archetypes).
-    dense_storages: std.AutoArrayHashMapUnmanaged(ArchetypeHash, ErasedDenseStorage),
+    archetypes: std.AutoArrayHashMapUnmanaged(ArchetypeHash, ArchetypeStorage),
 
     /// Maps entities to their metadata/locations/indicies.
     entity_map: std.AutoArrayHashMapUnmanaged(Entity, EntityMetadata),
-
-    /// Current generation of entities.
-    ///
-    /// ## Note
-    /// This gets "bumped" everytime an entity is removed from the `World`.
-    current_generation: usize,
 
     /// Creates new `World`.
     fn init(allocator: Allocator) Self {
@@ -52,9 +46,8 @@ const World = struct {
             .allocator = allocator,
             .num_entities = 0,
             .sparse_storages = .{},
-            .dense_storages = .{},
+            .archetypes = .{},
             .entity_map = .{},
-            .current_generation = 0,
         };
     }
 
@@ -69,10 +62,11 @@ const World = struct {
         self.sparse_storages.deinit(self.allocator);
 
         // Remove all dense storages
-        for (self.dense_storages.values()) |erased_storage| {
-            erased_storage.deinit(erased_storage.ptr, self.allocator);
+        for (self.archetypes.keys()) |archetype_hash| {
+            const archetype_storage: *ArchetypeStorage = self.archetypes.getPtr(archetype_hash).?;
+            archetype_storage.deinit(self.allocator);
         }
-        self.dense_storages.deinit(self.allocator);
+        self.archetypes.deinit(self.allocator);
 
         // Free entity map
         self.entity_map.deinit(self.allocator);
@@ -91,7 +85,6 @@ const World = struct {
         //  Add entity data to the entity map (and to the empty archetype storage)
         try self.entity_map.put(self.allocator, Entity{
             .id = entity_id,
-            .generation = self.current_generation,
         }, EntityMetadata{
             .archetype_hash = EMPTY_ARCHETYPE_HASH,
             .dense_index = 0,
@@ -119,6 +112,7 @@ const World = struct {
         const component_hash: ComponentHash = std.hash_map.hashString(@typeName(Component));
 
         switch (Component.StorageType) {
+            // TODO: Update entity map
             .Sparse => {
                 // Add component to pre-existing storage
                 if (self.sparse_storages.contains(component_hash)) {
@@ -172,7 +166,6 @@ const World = struct {
                 // Calculate new archetype hash for the entity
                 const entity_info: EntityMetadata = self.entity_map.get(Entity{
                     .id = entity,
-                    .generation = self.current_generation,
                 }).?;
                 const old_hash = entity_info.archetype_hash;
                 const new_hash = if (entityHasComponent(entity_info, component_hash))
@@ -180,15 +173,14 @@ const World = struct {
                 else
                     old_hash ^ component_hash;
 
-                // Add component to pre-existing storage
-                if (self.dense_storages.contains(new_hash)) {
+                // Add component to pre-existing archetype
+                if (self.archetypes.contains(new_hash)) {
                     if (new_hash != old_hash) {
-                        const new_erased_storage: *ErasedDenseStorage = self.dense_storages.getPtr(new_hash).?;
-                        const current_erased_storage: *ErasedDenseStorage = self.dense_storages.getPtr(old_hash).?;
+                        const new_erased_storage: *ErasedDenseStorage = self.archetypes.getPtr(new_hash).?;
+                        const current_erased_storage: *ErasedDenseStorage = self.archetypes.getPtr(old_hash).?;
 
                         // Get source and dest indicies
                         const src_idx = self.entity_map.get(Entity{
-                            .generation = self.current_generation,
                             .id = entity,
                         }).?.dense_index;
                         _ = src_idx;
@@ -266,13 +258,13 @@ test "Can add component to entity" {
     }
 
     // Add `dense` component
-    // {
-    //     const Velocity = struct {
-    //         const StorageType: storage.StorageType = .Dense;
-    //         x: u8,
-    //     };
-    //     const vel = Velocity{ .x = 10 };
-    //     try world.addComponentToEntity(Velocity, vel, entity);
-    //     try testing.expectEqual(world.dense_storages.count(), 1);
-    // }
+    {
+        // const Velocity = struct {
+        //     const StorageType: storage.StorageType = .Dense;
+        //     x: u8,
+        // };
+        // const vel = Velocity{ .x = 10 };
+        // try world.addComponentToEntity(Velocity, vel, entity);
+        // try testing.expectEqual(world.dense_storages.count(), 1);
+    }
 }

@@ -3,13 +3,12 @@ const storage = @import("storage.zig");
 const ComponentHash = storage.ComponentHash;
 const ArchetypeHash = storage.ArchetypeHash;
 
-/// Represents the entity index (ignoring generation).
+/// Represents the entity index.
 pub const EntityId = usize;
 
 /// An entity in the ECS.
 pub const Entity = struct {
     id: EntityId,
-    generation: usize = 0,
 };
 
 /// Extra information about an entity and its location in the various storages.
