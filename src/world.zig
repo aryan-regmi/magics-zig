@@ -8,6 +8,7 @@ const EntityMetadata = entity_.EntityMetadata;
 const ErasedSparseStorage = storage.ErasedSparseStorage;
 const SparseStorage = storage.SparseStorage;
 const ErasedDenseStorage = storage.ErasedDenseStorage;
+const DenseStorage = storage.DenseStorage;
 const ArchetypeStorage = storage.ArchetypeStorage;
 const ComponentHash = storage.ComponentHash;
 const ArchetypeHash = storage.ArchetypeHash;
@@ -104,6 +105,93 @@ const World = struct {
         return false;
     }
 
+    /// Creates a new `ErasedSparseStorage` pointing to a new `SparseStorage(Component)`.
+    fn initErasedSparseStorage(self: *Self, comptime Component: type, component: Component, component_hash: ComponentHash, entity: EntityId) !void {
+        // Create new `SparseStorage` w/ `num_entities` entries
+        var new_storage: *SparseStorage(Component) = try self.allocator.create(SparseStorage(Component));
+        new_storage.* = SparseStorage(Component){
+            .total_entites = 0,
+            .components = .{},
+        };
+        for (0..self.num_entities) |_| {
+            try new_storage.addEmptyEntry(self.allocator);
+        }
+        new_storage.setComponentValue(entity, component);
+
+        // Create new `ErasedSparseStorage` from the new `SparseStorage`
+        var erased_storage = ErasedSparseStorage{
+            .ptr = new_storage,
+            .deinit = (struct {
+                pub fn deinit(ptr: *anyopaque, allocator: Allocator) void {
+                    var sparse_storage = ErasedSparseStorage.toSparseStorage(ptr, Component);
+                    sparse_storage.deinit(allocator);
+                    allocator.destroy(sparse_storage);
+                }
+            }).deinit,
+            .addEmptyEntry = (struct {
+                pub fn addEmptyEntry(ptr: *anyopaque, allocator: Allocator) !void {
+                    var concrete_storage = ErasedSparseStorage.toSparseStorage(ptr, Component);
+                    try concrete_storage.addEmptyEntry(allocator);
+                }
+            }).addEmptyEntry,
+        };
+
+        // Add new `ErasedSparseStorage` to world
+        try self.sparse_storages.put(self.allocator, component_hash, erased_storage);
+        return;
+    }
+
+    /// Creates a new `ErasedDenseStorage` pointing to a new `DenseStorage(Component)`.
+    fn initErasedDenseStorage(self: *Self, comptime Component: type, component: Component) !ErasedDenseStorage {
+        // Create new `DenseStorage` and add a new entity to it.
+        var new_storage: *DenseStorage(Component) = try self.allocator.create(DenseStorage(Component));
+        new_storage.* = DenseStorage(Component){
+            .total_entites = 0,
+            .components = .{},
+        };
+        new_storage.addNewEntityWithComponentValue(self.allocator, component);
+
+        // Create new `ErasedSparseStorage` from the new `SparseStorage`
+        var erased_storage = ErasedDenseStorage{
+            .ptr = new_storage,
+            .total_entites = 1,
+            .deinit = (struct {
+                pub fn deinit(ptr: *anyopaque, allocator: Allocator) void {
+                    var dense_storage = ErasedDenseStorage.toDenseStorage(ptr, Component);
+                    dense_storage.deinit(allocator);
+                    allocator.destroy(dense_storage);
+                }
+            }).deinit,
+            .moveEntity = (struct {
+                pub fn moveEntity(src: *ErasedDenseStorage, dst: *ErasedDenseStorage, src_idx: usize) !void {
+                    // Get concrete dense storages
+                    var src_storage = ErasedDenseStorage.toDenseStorage(src.ptr, Component);
+                    var dst_storage = ErasedDenseStorage.toDenseStorage(dst.ptr, Component);
+
+                    // Move the component value from `src_storage` to `dst_storage`.
+                    const component_val = src_storage.components.orderedRemove(src_idx);
+                    try dst_storage.components.append(self.allocator, component_val);
+
+                    // TODO: Update entity map (new dense_index)
+                }
+            }).moveEntity,
+        };
+
+        return erased_storage;
+    }
+
+    // FIXME: Implement!
+    fn initArchetypeStorage(self: *Self) !void {
+        _ = self;
+
+        // TODO: Intialize new dense storages for each component type
+        // TODO: Intialize new dense storage for newly added component type
+        //
+        // TODO: Copy over sparse_storages?
+        //
+        // TODO: Add new archetype to the world
+    }
+
     /// Adds a component value to the specified entity.
     ///
     /// ## Note
@@ -125,43 +213,9 @@ const World = struct {
                 }
 
                 // Initialize component storage if one doesn't exist
-                {
-                    // Create new `SparseStorage` w/ `num_entities` entries
-                    var new_storage: *SparseStorage(Component) = try self.allocator.create(SparseStorage(Component));
-                    new_storage.* = SparseStorage(Component){
-                        .total_entites = 0,
-                        .components = .{},
-                    };
-                    for (0..self.num_entities) |_| {
-                        try new_storage.addEmptyEntry(self.allocator);
-                    }
-                    new_storage.setComponentValue(entity, component);
-
-                    // Create new `ErasedSparseStorage` from the new `SparseStorage`
-                    var erased_storage = ErasedSparseStorage{
-                        .ptr = new_storage,
-                        .deinit = (struct {
-                            pub fn deinit(erased: *anyopaque, allocator: Allocator) void {
-                                var ptr = ErasedSparseStorage.toSparseStorage(erased, Component);
-                                ptr.deinit(allocator);
-                                allocator.destroy(ptr);
-                            }
-                        }).deinit,
-                        .addEmptyEntry = (struct {
-                            pub fn addEmptyEntry(ptr: *anyopaque, allocator: Allocator) !void {
-                                var concrete_storage = ErasedSparseStorage.toSparseStorage(ptr, Component);
-                                try concrete_storage.addEmptyEntry(allocator);
-                            }
-                        }).addEmptyEntry,
-                    };
-
-                    // Add new `ErasedSparseStorage` to world
-                    try self.sparse_storages.put(self.allocator, component_hash, erased_storage);
-                    return;
-                }
+                try self.initErasedSparseStorage(Component, component, component_hash, entity);
             },
 
-            // FIXME: Redo with archetypes instead!
             .Dense => {
                 // Calculate new archetype hash for the entity
                 const entity_info: EntityMetadata = self.entity_map.get(Entity{
@@ -173,30 +227,32 @@ const World = struct {
                 else
                     old_hash ^ component_hash;
 
-                // Add component to pre-existing archetype
                 if (self.archetypes.contains(new_hash)) {
+                    // Move entity to new,pre-existing archetype
                     if (new_hash != old_hash) {
-                        const new_erased_storage: *ErasedDenseStorage = self.archetypes.getPtr(new_hash).?;
-                        const current_erased_storage: *ErasedDenseStorage = self.archetypes.getPtr(old_hash).?;
+                        const curr_archetype: *ArchetypeStorage = self.archetypes.getPtr(old_hash).?;
+                        const new_archetype: *ArchetypeStorage = self.archetypes.getPtr(new_hash).?;
 
-                        // Get source and dest indicies
-                        const src_idx = self.entity_map.get(Entity{
-                            .id = entity,
-                        }).?.dense_index;
-                        _ = src_idx;
-                        const dst_idx = new_erased_storage.total_entites;
-                        _ = dst_idx;
-
-                        // Move entity to other archetype
-                        var current_dense_storage = ErasedDenseStorage.toDenseStorage(current_erased_storage.ptr, Component);
-                        _ = current_dense_storage;
-                        var new_dense_storage = ErasedDenseStorage.toDenseStorage(new_erased_storage.ptr, Component);
-                        _ = new_dense_storage;
-                        // current_dense_storage.moveEntity(new_dense_storage, src_idx, dst_idx);
+                        const src_idx = entity_info.dense_index;
+                        try curr_archetype.moveEntity(new_archetype, src_idx);
                     }
+
+                    // Just update component value in the same archetype
+                    else {
+                        const curr_archetype: *ArchetypeStorage = self.archetypes.getPtr(old_hash).?;
+                        const erased_dense_storage: *ErasedDenseStorage = curr_archetype.dense_components.getPtr(component_hash).?;
+                        var dense_storage = ErasedDenseStorage.toDenseStorage(erased_dense_storage.ptr, Component);
+                        dense_storage.components.items[entity_info.dense_index] = component;
+                    }
+
+                    return;
                 }
 
-                // TODO: Initialize component storage if one doesn't exist
+                // TODO: Initialize archetype storage if one doesn't exist
+                // (Figure out archetype hash)
+                try self.initArchetypeStorage();
+
+                // TODO: Set `entity`'s dense index!
             },
         }
     }
@@ -259,12 +315,12 @@ test "Can add component to entity" {
 
     // Add `dense` component
     {
-        // const Velocity = struct {
-        //     const StorageType: storage.StorageType = .Dense;
-        //     x: u8,
-        // };
-        // const vel = Velocity{ .x = 10 };
-        // try world.addComponentToEntity(Velocity, vel, entity);
+        const Velocity = struct {
+            const StorageType: storage.StorageType = .Dense;
+            x: u8,
+        };
+        const vel = Velocity{ .x = 10 };
+        try world.addComponentToEntity(Velocity, vel, entity);
         // try testing.expectEqual(world.dense_storages.count(), 1);
     }
 }

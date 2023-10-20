@@ -103,11 +103,19 @@ pub fn DenseStorage(comptime Component: type) type {
             self.components.deinit(allocator);
             self.total_entites = 0;
         }
+
+        /// Adds a new entity to the dense storage with the given component value.
+        pub fn addNewEntityWithComponentValue(self: *Self, allocator: Allocator, component: Component) !void {
+            self.components.append(allocator, component);
+            self.total_entites += 1;
+        }
     };
 }
 
 /// A type-erased `DenseStorage`.
 pub const ErasedDenseStorage = struct {
+    const Self = @This();
+
     /// A pointer to the underyling `DenseStorage`.
     ptr: *anyopaque,
 
@@ -117,17 +125,24 @@ pub const ErasedDenseStorage = struct {
     /// Frees memory used by the underyling `DenseStorage`.
     deinit: *const fn (ptr: *anyopaque, allocator: Allocator) void,
 
+    /// Moves an entity from the `src` storage to the `dst` storage.
+    ///
+    /// ## Note
+    /// The `src` and `dst` storages must be the same underlying type
+    /// (`DenseStorage(T)`, where T is the same component for both storages).
+    moveEntity: *const fn (src: *Self, dst: *Self, src_idx: usize) void,
+
     /// Converts the type-erased storage to a typed `DenseStorage(Component)`.
     pub fn toDenseStorage(ptr: *anyopaque, comptime Component: type) *DenseStorage(Component) {
         return @ptrCast(@alignCast(ptr));
     }
 };
 
-// Archetype storage that emulates an in-memory database to store groups of
-// component values.
-//
-// This storage type is optimized for fast iterations, but has slower
-// insertions and deletions than `SparseStorage`.
+/// Archetype storage that emulates an in-memory database to store groups of
+/// component values.
+///
+/// This storage type is optimized for fast iterations, but has slower
+/// insertions and deletions than `SparseStorage`.
 pub const ArchetypeStorage = struct {
     const Self = @This();
     /// The hash for the archetype (uniquely identifies different archetypes).
@@ -155,15 +170,13 @@ pub const ArchetypeStorage = struct {
     }
 
     /// Moves an entity from `this`/`self` dense storage to the `other` storage.
-    pub fn moveEntity(self: *Self, other: *Self, src_idx: usize, dst_idx: usize) !void {
+    pub fn moveEntity(self: *Self, other: *Self, src_idx: usize) !void {
+        // Move component from `self` dense storage if `other` has `component_type`.
         for (self.dense_components.keys()) |component_type| {
-            var component_vals = self.dense_components.getPtr(component_type).?;
-            var val_to_move = component_vals.items[src_idx];
-            component_vals.items[src_idx] = null;
-
+            var src_storage: *ErasedDenseStorage = self.dense_components.getPtr(component_type).?;
             if (other.dense_components.contains(component_type)) {
-                var other_vals = other.dense_components.getPtr(component_type).?;
-                other_vals.items[dst_idx] = val_to_move;
+                var dst_storage: *ErasedDenseStorage = other.dense_components.getPtr(component_type).?;
+                src_storage.moveEntity(src_storage, dst_storage, src_idx);
             }
         }
 
