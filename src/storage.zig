@@ -4,8 +4,6 @@ const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Entity = world.Entity;
 
-// TODO: Add bound checks
-
 /// Determines the type of storage for a component type.
 ///
 /// `Sparse` storage is optimized for fast insertions and deletions, but

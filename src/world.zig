@@ -22,6 +22,7 @@ pub const World = struct {
     /// The total number of entities in the world.
     total_entities: usize = 0,
 
+    /// Sparse component storages.
     sparse_components: Hashmap(ComponentHash, ErasedSparseStorage) = .{},
 
     /// Creates new `World`.
@@ -84,7 +85,18 @@ pub const World = struct {
         // TODO: Add logic for dense/archetype storage
     }
 
-    // pub fn getComponentForEntity(self: *Self, entity: Entity)
+    /// Gets the entity's value for the component of the specified type.
+    pub fn getComponentForEntity(self: *Self, comptime Component: type, entity: Entity) ?Component {
+        if (Component.StorageType == .Sparse) {
+            const COMPONENT_HASH = std.hash_map.hashString(@typeName(Component));
+
+            var erased_storage: *ErasedSparseStorage = self.sparse_components.getPtr(COMPONENT_HASH).?;
+            var concrete = ErasedSparseStorage.toConcrete(erased_storage.ptr, Component);
+            return concrete.data.items[entity];
+        }
+
+        // TODO: Handle `Dense` storage
+    }
 };
 
 test "Can create world" {
@@ -123,4 +135,27 @@ test "Can add component to entity" {
 
     var entity = try world.spawn();
     try world.addComponentToEntity(entity, TestStruct{ .val = 42 });
+}
+
+test "Can get component for entity" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    const TestStruct = struct {
+        const StorageType: storage.StorageType = .Sparse;
+        val: i32,
+    };
+
+    var world = World.init(allocator);
+    defer world.deinit();
+
+    var entity = try world.spawn();
+    try world.addComponentToEntity(entity, TestStruct{ .val = 42 });
+
+    var test_struct: TestStruct = world.getComponentForEntity(TestStruct, entity).?;
+    try testing.expectEqual(test_struct.val, 42);
+
+    try world.addComponentToEntity(entity, TestStruct{ .val = 99 });
+    test_struct = world.getComponentForEntity(TestStruct, entity).?;
+    try testing.expectEqual(test_struct.val, 99);
 }
