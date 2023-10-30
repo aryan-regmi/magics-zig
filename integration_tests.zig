@@ -1,0 +1,1 @@
+const magics = @import("Magics");

@@ -21,7 +21,7 @@ const AppOpts = struct {
 };
 
 /// The main ECS app.
-const App = struct {
+pub const App = struct {
     const Self = @This();
 
     /// The allocator used for internal allocations.
