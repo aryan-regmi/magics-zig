@@ -28,7 +28,11 @@ pub const World = struct {
     /// Sparse component storages.
     _sparse_components: Hashmap(ComponentHash, ErasedSparseStorage) = .{},
 
+    /// List of entities removed from the world.
     _removed_entities: ArrayList(Entity) = .{},
+
+    /// Map of entities to their associated component types.
+    _entity_map: Hashmap(Entity, ArrayList(ComponentHash)) = .{},
 
     /// Creates new `World`.
     pub fn init(allocator: Allocator) Self {
@@ -43,7 +47,15 @@ pub const World = struct {
             erased_storage.deinit(self._allocator);
         }
         self._sparse_components.deinit(self._allocator);
+
+        // Free removed entities list
         self._removed_entities.deinit(self._allocator);
+
+        // Free entity map
+        for (self._entity_map.keys()) |entity| {
+            self._entity_map.getPtr(entity).?.deinit(self._allocator);
+        }
+        self._entity_map.deinit(self._allocator);
     }
 
     /// Returns the total number of entities in the world.
@@ -53,28 +65,25 @@ pub const World = struct {
 
     /// Spawns an empty entity.
     pub fn spawn(self: *Self) !Entity {
-        if (self._removed_entities.items.len == 0) {
-            const entity = self._total_entities;
-            self._total_entities += 1;
+        var entity: Entity = undefined;
 
+        if (self._removed_entities.items.len == 0) {
+            entity = self._total_entities;
             // Add empty entry to all sparse component storages
             for (self._sparse_components.keys()) |component_type| {
                 var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(component_type).?;
                 try erased_storage.addEmptyEntity(self._allocator);
             }
-
-            return entity;
+        } else {
+            // Grab entity from removed list
+            entity = self._removed_entities.pop();
         }
 
-        const entity: Entity = self._removed_entities.pop();
+        // Add empty entry to entity map
+        var associated_components = try ArrayList(ComponentHash).initCapacity(self._allocator, 1);
+        try self._entity_map.put(self._allocator, entity, associated_components);
+
         self._total_entities += 1;
-
-        // Update reused entry for all sparse component storages
-        for (self._sparse_components.keys()) |component_type| {
-            var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(component_type).?;
-            _ = erased_storage.removeEntityErased(entity);
-        }
-
         return entity;
     }
 
@@ -90,6 +99,11 @@ pub const World = struct {
 
         self._total_entities -= 1;
         try self._removed_entities.append(self._allocator, entity);
+
+        // Update entity map
+        var associated_components = self._entity_map.getPtr(entity).?;
+        associated_components.deinit(self._allocator);
+        _ = self._entity_map.swapRemove(entity);
     }
 
     /// Adds the specified component to the entity.
@@ -116,6 +130,10 @@ pub const World = struct {
             var new_storage = try ErasedSparseStorage.init(ComponentType, self._allocator, self._total_entities);
             new_storage.updateValue(ComponentType, entity, component);
             try self._sparse_components.put(self._allocator, COMPONENT_HASH, new_storage);
+
+            // Update entity map
+            var associated_components: *ArrayList(ComponentHash) = self._entity_map.getPtr(entity).?;
+            try associated_components.append(self._allocator, COMPONENT_HASH);
         }
 
         // TODO: Add logic for dense/archetype storage
@@ -137,9 +155,17 @@ pub const World = struct {
 
         // TODO: Add `Dense` logic
 
+        // Update entity map
+        var associated_components: ArrayList(ComponentHash) = self._entity_map.getPtr(entity).?;
+        for (associated_components.items, 0..) |component_hash, i| {
+            if (component_hash == COMPONENT_HASH) {
+                associated_components.swapRemove(i);
+                break;
+            }
+        }
     }
 
-    /// Gets the entity's value for the component of the specified type.
+    /// Gets the component value (of the specified type) for the entity.
     pub fn getComponentForEntity(self: *Self, comptime Component: type, entity: Entity) ?Component {
         if (Component.StorageType == .Sparse) {
             const COMPONENT_HASH = std.hash_map.hashString(@typeName(Component));

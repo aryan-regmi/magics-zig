@@ -19,9 +19,14 @@ pub const Context = struct {
         };
     }
 
+    /// Gets the total number of entities in the world.
+    pub fn totalNumEntities(self: *Self) usize {
+        return self._world.getTotalEntities();
+    }
+
     /// Spawns an new/empty entity into the world.
     pub fn spawn(self: *Self) !Entity {
-        return self._world.spawn();
+        return try self._world.spawn();
     }
 
     /// Despawns an entity from the world.
@@ -34,7 +39,12 @@ pub const Context = struct {
         return try self._world.addComponentToEntity(entity, component);
     }
 
-    pub fn totalNumEntities(self: *Self) usize {
-        return self._world.getTotalEntities();
+    /// Queries the world for entites with the given components.
+    pub fn query(self: *Self, comptime component_types: []const type) !void {
+        _ = self;
+        inline for (component_types) |t| {
+            _ = t;
+            // TODO: Calculate hash of types!
+        }
     }
 };

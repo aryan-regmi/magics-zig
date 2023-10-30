@@ -50,9 +50,9 @@ fn respawnEntitySystem(ctx: *Context) !void {
     try testing.expectEqual(ctx.totalNumEntities(), 3);
 }
 
+// TODO: Impl query system
 fn queryEntitySystem(ctx: *Context) !void {
-    _ = ctx;
-    // TODO: Impl query system
+    try ctx.query(&[_]type{ TestComponent, TestComponent2 });
 }
 
 test "Can spawn/despawn entities" {
