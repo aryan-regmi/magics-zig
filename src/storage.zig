@@ -1,5 +1,5 @@
 const std = @import("std");
-const world = @import("./world.zig");
+const world = @import("world.zig");
 const Allocator = std.mem.Allocator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const Entity = world.Entity;
@@ -25,11 +25,11 @@ pub fn SparseComponentStorage(comptime Component: type) type {
         data: ArrayListUnmanaged(?Component) = .{},
 
         /// Create new `SparseComponentStorage`.
-        pub fn init(allocator: *const Allocator, num_entities: usize) !Self {
+        pub fn init(allocator: Allocator, num_entities: usize) !Self {
             // Create new array list and initalize values to `null`
-            var data = try ArrayListUnmanaged(?Component).initCapacity(allocator.*, num_entities);
+            var data = try ArrayListUnmanaged(?Component).initCapacity(allocator, num_entities);
             for (0..num_entities) |_| {
-                try data.append(allocator.*, null);
+                try data.append(allocator, null);
             }
 
             return .{
@@ -44,7 +44,7 @@ pub fn SparseComponentStorage(comptime Component: type) type {
     };
 }
 
-/// A type erased `SparseComponentStorage` for storage in the world.
+/// A type erased `SparseComponentStorage` for optimized for sparse storage.
 pub const ErasedSparseStorage = struct {
     const Self = @This();
 
@@ -58,7 +58,7 @@ pub const ErasedSparseStorage = struct {
     deinit: *const fn (self: *Self, allocator: Allocator) void,
 
     /// Initialize a new sparsed storage, return the erased storage pointing at it.
-    pub fn init(comptime Component: type, allocator: *const Allocator, num_entities: usize) !Self {
+    pub fn init(comptime Component: type, allocator: Allocator, num_entities: usize) !Self {
         var ptr = try allocator.create(SparseComponentStorage(Component));
         ptr.* = try SparseComponentStorage(Component).init(allocator, num_entities);
 

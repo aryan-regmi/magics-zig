@@ -1,5 +1,5 @@
 const std = @import("std");
-const storage = @import("./storage.zig");
+const storage = @import("storage.zig");
 const Allocator = std.mem.Allocator;
 const Hashmap = std.AutoArrayHashMapUnmanaged;
 const ErasedSparseStorage = storage.ErasedSparseStorage;
@@ -18,8 +18,6 @@ pub const ComponentHash = u64;
 pub const World = struct {
     const Self = @This();
 
-    allocator: Allocator,
-
     /// The total number of entities in the world.
     total_entities: usize = 0,
 
@@ -27,38 +25,36 @@ pub const World = struct {
     sparse_components: Hashmap(ComponentHash, ErasedSparseStorage) = .{},
 
     /// Creates new `World`.
-    pub fn init(allocator: Allocator) Self {
-        return .{
-            .allocator = allocator,
-        };
+    pub fn init() Self {
+        return Self{};
     }
 
     /// Destroys the world and frees any allocations it made.
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, allocator: Allocator) void {
         // Free all sparse components
         for (self.sparse_components.keys()) |component_type| {
             var erased_storage: *ErasedSparseStorage = self.sparse_components.getPtr(component_type).?;
-            erased_storage.deinit(erased_storage, self.allocator);
+            erased_storage.deinit(erased_storage, allocator);
         }
-        self.sparse_components.deinit(self.allocator);
+        self.sparse_components.deinit(allocator);
     }
 
     /// Spawns an empty entity.
-    pub fn spawn(self: *Self) !Entity {
+    pub fn spawn(self: *Self, allocator: Allocator) !Entity {
         const entity = self.total_entities;
         self.total_entities += 1;
 
         // Add empty entry to all sparse components!
         for (self.sparse_components.keys()) |component_type| {
             var erased_storage: *ErasedSparseStorage = self.sparse_components.getPtr(component_type).?;
-            try erased_storage.addEmptyEntity(erased_storage, self.allocator);
+            try erased_storage.addEmptyEntity(erased_storage, allocator);
         }
 
         return entity;
     }
 
     /// Adds the specified component to the entity.
-    pub fn addComponentToEntity(self: *Self, entity: Entity, component: anytype) !void {
+    pub fn addComponentToEntity(self: *Self, allocator: Allocator, entity: Entity, component: anytype) !void {
         const ComponentType = @TypeOf(component);
         const COMPONENT_HASH = std.hash_map.hashString(@typeName(ComponentType));
 
@@ -78,9 +74,9 @@ pub const World = struct {
             }
 
             // Create new component type storage
-            var new_storage = try ErasedSparseStorage.init(ComponentType, &self.allocator, self.total_entities);
+            var new_storage = try ErasedSparseStorage.init(ComponentType, allocator, self.total_entities);
             new_storage.updateValue(ComponentType, entity, component);
-            try self.sparse_components.put(self.allocator, COMPONENT_HASH, new_storage);
+            try self.sparse_components.put(allocator, COMPONENT_HASH, new_storage);
         }
 
         // TODO: Add logic for dense/archetype storage
@@ -124,21 +120,21 @@ test "Can create world" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var world = World.init();
+    defer world.deinit(allocator);
 }
 
 test "Can spawn empty entity" {
     const testing = std.testing;
     const allocator = testing.allocator;
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var world = World.init();
+    defer world.deinit(allocator);
 
-    const e0 = try world.spawn();
+    const e0 = try world.spawn(allocator);
     try testing.expectEqual(e0, 0);
 
-    const e1 = try world.spawn();
+    const e1 = try world.spawn(allocator);
     try testing.expectEqual(e1, 1);
 }
 
@@ -151,11 +147,11 @@ test "Can add component to entity" {
         val: i32,
     };
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var world = World.init();
+    defer world.deinit(allocator);
 
-    var entity = try world.spawn();
-    try world.addComponentToEntity(entity, TestStruct{ .val = 42 });
+    var entity = try world.spawn(allocator);
+    try world.addComponentToEntity(allocator, entity, TestStruct{ .val = 42 });
 }
 
 test "Can get component for entity" {
@@ -167,16 +163,16 @@ test "Can get component for entity" {
         val: i32,
     };
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var world = World.init();
+    defer world.deinit(allocator);
 
-    var entity = try world.spawn();
-    try world.addComponentToEntity(entity, TestStruct{ .val = 42 });
+    var entity = try world.spawn(allocator);
+    try world.addComponentToEntity(allocator, entity, TestStruct{ .val = 42 });
 
     var test_struct: TestStruct = world.getComponentForEntity(TestStruct, entity).?;
     try testing.expectEqual(test_struct.val, 42);
 
-    try world.addComponentToEntity(entity, TestStruct{ .val = 99 });
+    try world.addComponentToEntity(allocator, entity, TestStruct{ .val = 99 });
     test_struct = world.getComponentForEntity(TestStruct, entity).?;
     try testing.expectEqual(test_struct.val, 99);
 }
@@ -195,12 +191,12 @@ test "Can remove component from entity" {
         val: u32,
     };
 
-    var world = World.init(allocator);
-    defer world.deinit();
+    var world = World.init();
+    defer world.deinit(allocator);
 
-    var entity = try world.spawn();
-    try world.addComponentToEntity(entity, TestStruct{ .val = 42 });
-    try world.addComponentToEntity(entity, TestStruct2{ .val = 99 });
+    var entity = try world.spawn(allocator);
+    try world.addComponentToEntity(allocator, entity, TestStruct{ .val = 42 });
+    try world.addComponentToEntity(allocator, entity, TestStruct2{ .val = 99 });
 
     var removed_component: TestStruct = world.removeComponentFromEntity(TestStruct, entity).?;
     try testing.expectEqual(removed_component.val, 42);
