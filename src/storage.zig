@@ -69,7 +69,7 @@ pub const ErasedSparseStorage = struct {
             ._ptr = ptr,
             ._addEmptyEntity = (struct {
                 pub fn addEmptyEntity(self: *Self, allocator_: Allocator) anyerror!void {
-                    var concrete = Self.toConcrete(self._ptr, Component);
+                    var concrete = self.toConcrete(Component);
                     try concrete._data.append(allocator_, null);
                 }
             }).addEmptyEntity,
@@ -80,7 +80,7 @@ pub const ErasedSparseStorage = struct {
             }).removeEntityErased,
             ._deinit = (struct {
                 pub fn deinit(self: *Self, allocator_: Allocator) void {
-                    var concrete = Self.toConcrete(self._ptr, Component);
+                    var concrete = self.toConcrete(Component);
                     concrete.deinit(allocator_);
                     allocator_.destroy(concrete);
                 }
@@ -103,23 +103,21 @@ pub const ErasedSparseStorage = struct {
         return self._removeEntityErased(self, entity);
     }
 
-    // TODO: Make this a method! (take in self)
-    //
     /// Casts the erased sparse storage to its concrete type.
-    pub fn toConcrete(ptr: *anyopaque, comptime Component: type) *SparseComponentStorage(Component) {
-        return @ptrCast(@alignCast(ptr));
+    pub fn toConcrete(self: *Self, comptime Component: type) *SparseComponentStorage(Component) {
+        return @ptrCast(@alignCast(self._ptr));
     }
 
     /// Updates the component value to `component` for the given entity.
     pub fn updateValue(self: *Self, comptime Component: type, entity: Entity, component: Component) void {
-        var concrete = Self.toConcrete(self._ptr, Component);
+        var concrete = self.toConcrete(Component);
         concrete._data.items[entity] = component;
     }
 
     /// Removes an entity from the component storage.
     pub fn removeEntity(self: *Self, comptime Component: type, entity: Entity) ?Component {
         // Convert to concrete storage
-        var concrete = Self.toConcrete(self._ptr, Component);
+        var concrete = self.toConcrete(Component);
 
         // Remove and return the current component for the specified entity
         var removed: Component = concrete._data.items[entity] orelse return null;

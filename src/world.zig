@@ -145,7 +145,7 @@ pub const World = struct {
             const COMPONENT_HASH = std.hash_map.hashString(@typeName(Component));
 
             var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(COMPONENT_HASH).?;
-            var concrete = ErasedSparseStorage.toConcrete(erased_storage._ptr, Component);
+            var concrete = erased_storage.toConcrete(Component);
             return concrete._data.items[entity];
         }
 
