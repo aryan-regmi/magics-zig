@@ -25,42 +25,42 @@ const App = struct {
     const Self = @This();
 
     /// The allocator used for internal allocations.
-    allocator: Allocator,
+    _allocator: Allocator,
 
     /// The world containing all entities and components for the ECS.
-    world: World,
+    _world: World,
 
     /// Storages for sparse component types.
-    sparse_component_storages: HashMap(ComponentHash, ErasedSparseStorage) = .{},
+    _sparse_component_storages: HashMap(ComponentHash, ErasedSparseStorage) = .{},
 
     /// The scheduler that runs the ECS's systems.
-    scheduler: Scheduler,
+    _scheduler: Scheduler,
 
     /// Initialize a new ECS app.
     pub fn init(allocator: Allocator, opts: AppOpts) Self {
         return .{
-            .allocator = allocator,
-            .world = World.init(),
-            .scheduler = Scheduler{ .type = opts.scheduler_type },
+            ._allocator = allocator,
+            ._world = World.init(),
+            ._scheduler = Scheduler{ .type = opts.scheduler_type },
         };
     }
 
     /// Frees all the memory used by the ECS.
     pub fn deinit(self: *Self) void {
         // Deinit the sparse storages
-        self.sparse_component_storages.deinit(self.allocator);
+        self._sparse_component_storages.deinit(self._allocator);
         // Deinit the scheduler
-        self.scheduler.deinit(self.allocator);
+        self._scheduler.deinit(self._allocator);
     }
 
     /// Runs the systems added to the ECS.
     pub fn run(self: *Self) !void {
-        try self.scheduler.run();
+        try self._scheduler.run();
     }
 
     // TODO: Add stages to run ordered systems
     pub fn addSystem(self: *Self, system: System) !void {
-        try self.scheduler.addSystem(self.allocator, system);
+        try self._scheduler.addSystem(self._allocator, system);
     }
 };
 
@@ -70,7 +70,7 @@ test "Can initialize new app" {
 
     var app = App.init(ALLOC, .{});
     defer app.deinit();
-    try testing.expectEqual(app.world.total_entities, 0);
+    try testing.expectEqual(app._world.getTotalEntities(), 0);
 }
 
 test "Can run app" {
@@ -101,7 +101,6 @@ test "Can run systems" {
 
     var app = App.init(ALLOC, .{});
     defer app.deinit();
-
     try app.addSystem(SYSTEMS.system1);
     try app.addSystem(SYSTEMS.system2);
     try app.run();

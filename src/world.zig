@@ -19,10 +19,10 @@ pub const World = struct {
     const Self = @This();
 
     /// The total number of entities in the world.
-    total_entities: usize = 0,
+    _total_entities: usize = 0,
 
     /// Sparse component storages.
-    sparse_components: Hashmap(ComponentHash, ErasedSparseStorage) = .{},
+    _sparse_components: Hashmap(ComponentHash, ErasedSparseStorage) = .{},
 
     /// Creates new `World`.
     pub fn init() Self {
@@ -32,22 +32,27 @@ pub const World = struct {
     /// Destroys the world and frees any allocations it made.
     pub fn deinit(self: *Self, allocator: Allocator) void {
         // Free all sparse components
-        for (self.sparse_components.keys()) |component_type| {
-            var erased_storage: *ErasedSparseStorage = self.sparse_components.getPtr(component_type).?;
-            erased_storage.deinit(erased_storage, allocator);
+        for (self._sparse_components.keys()) |component_type| {
+            var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(component_type).?;
+            erased_storage.deinit(allocator);
         }
-        self.sparse_components.deinit(allocator);
+        self._sparse_components.deinit(allocator);
+    }
+
+    /// Returns the total number of entities in the world.
+    pub fn getTotalEntities(self: *Self) usize {
+        return self._total_entities;
     }
 
     /// Spawns an empty entity.
     pub fn spawn(self: *Self, allocator: Allocator) !Entity {
-        const entity = self.total_entities;
-        self.total_entities += 1;
+        const entity = self._total_entities;
+        self._total_entities += 1;
 
         // Add empty entry to all sparse components!
-        for (self.sparse_components.keys()) |component_type| {
-            var erased_storage: *ErasedSparseStorage = self.sparse_components.getPtr(component_type).?;
-            try erased_storage.addEmptyEntity(erased_storage, allocator);
+        for (self._sparse_components.keys()) |component_type| {
+            var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(component_type).?;
+            try erased_storage.addEmptyEntity(allocator);
         }
 
         return entity;
@@ -66,17 +71,17 @@ pub const World = struct {
 
         if (ComponentType.StorageType == storage.StorageType.Sparse) {
             // If component type exists already, then just update the existing value
-            if (self.sparse_components.contains(COMPONENT_HASH)) {
+            if (self._sparse_components.contains(COMPONENT_HASH)) {
                 // Update the component value
-                var erased_storage: *ErasedSparseStorage = self.sparse_components.getPtr(COMPONENT_HASH).?;
+                var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(COMPONENT_HASH).?;
                 erased_storage.updateValue(ComponentType, entity, component);
                 return;
             }
 
             // Create new component type storage
-            var new_storage = try ErasedSparseStorage.init(ComponentType, allocator, self.total_entities);
+            var new_storage = try ErasedSparseStorage.init(ComponentType, allocator, self._total_entities);
             new_storage.updateValue(ComponentType, entity, component);
-            try self.sparse_components.put(allocator, COMPONENT_HASH, new_storage);
+            try self._sparse_components.put(allocator, COMPONENT_HASH, new_storage);
         }
 
         // TODO: Add logic for dense/archetype storage
@@ -88,11 +93,9 @@ pub const World = struct {
 
         if (Component.StorageType == .Sparse) {
             // Remove component if it exists for the specified component
-            if (self.sparse_components.contains(COMPONENT_HASH)) {
-                var concrete = ErasedSparseStorage.toConcrete(self.sparse_components.getPtr(COMPONENT_HASH).?.ptr, Component);
-                var removed: Component = concrete.data.items[entity].?;
-                concrete.data.items[entity] = null;
-                return removed;
+            if (self._sparse_components.contains(COMPONENT_HASH)) {
+                var existing_storage: *ErasedSparseStorage = self._sparse_components.getPtr(COMPONENT_HASH).?;
+                return existing_storage.removeEntity(Component, entity);
             }
 
             return null;
@@ -107,9 +110,9 @@ pub const World = struct {
         if (Component.StorageType == .Sparse) {
             const COMPONENT_HASH = std.hash_map.hashString(@typeName(Component));
 
-            var erased_storage: *ErasedSparseStorage = self.sparse_components.getPtr(COMPONENT_HASH).?;
-            var concrete = ErasedSparseStorage.toConcrete(erased_storage.ptr, Component);
-            return concrete.data.items[entity];
+            var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(COMPONENT_HASH).?;
+            var concrete = ErasedSparseStorage.toConcrete(erased_storage._ptr, Component);
+            return concrete._data.items[entity];
         }
 
         // TODO: Handle `Dense` storage

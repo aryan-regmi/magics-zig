@@ -22,7 +22,7 @@ pub fn SparseComponentStorage(comptime Component: type) type {
         const Self = @This();
 
         /// The sparsely stored component data.
-        data: ArrayListUnmanaged(?Component) = .{},
+        _data: ArrayListUnmanaged(?Component) = .{},
 
         /// Create new `SparseComponentStorage`.
         pub fn init(allocator: Allocator, num_entities: usize) !Self {
@@ -33,13 +33,13 @@ pub fn SparseComponentStorage(comptime Component: type) type {
             }
 
             return .{
-                .data = data,
+                ._data = data,
             };
         }
 
         /// Frees memory used by the storage.
         pub fn deinit(self: *Self, allocator: Allocator) void {
-            self.data.deinit(allocator);
+            self._data.deinit(allocator);
         }
     };
 }
@@ -49,13 +49,13 @@ pub const ErasedSparseStorage = struct {
     const Self = @This();
 
     /// Points the the concrete `SparseComponentStorage`.
-    ptr: *anyopaque,
+    _ptr: *anyopaque,
 
     /// Function to add an empty entry in the storage.
-    addEmptyEntity: *const fn (self: *Self, allocator: Allocator) anyerror!void,
+    _addEmptyEntity: *const fn (self: *Self, allocator: Allocator) anyerror!void,
 
     /// Frees memory used by the storage.
-    deinit: *const fn (self: *Self, allocator: Allocator) void,
+    _deinit: *const fn (self: *Self, allocator: Allocator) void,
 
     /// Initialize a new sparsed storage, return the erased storage pointing at it.
     pub fn init(comptime Component: type, allocator: Allocator, num_entities: usize) !Self {
@@ -63,16 +63,16 @@ pub const ErasedSparseStorage = struct {
         ptr.* = try SparseComponentStorage(Component).init(allocator, num_entities);
 
         return .{
-            .ptr = ptr,
-            .addEmptyEntity = (struct {
+            ._ptr = ptr,
+            ._addEmptyEntity = (struct {
                 pub fn addEmptyEntity(self: *Self, allocator_: Allocator) anyerror!void {
-                    var concrete = Self.toConcrete(self.ptr, Component);
-                    try concrete.data.append(allocator_, null);
+                    var concrete = Self.toConcrete(self._ptr, Component);
+                    try concrete._data.append(allocator_, null);
                 }
             }).addEmptyEntity,
-            .deinit = (struct {
+            ._deinit = (struct {
                 pub fn deinit(self: *Self, allocator_: Allocator) void {
-                    var concrete = Self.toConcrete(self.ptr, Component);
+                    var concrete = Self.toConcrete(self._ptr, Component);
                     concrete.deinit(allocator_);
                     allocator_.destroy(concrete);
                 }
@@ -80,14 +80,35 @@ pub const ErasedSparseStorage = struct {
         };
     }
 
+    /// Frees the memory used by the underlying sparse storage.
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self._deinit(self, allocator);
+    }
+
+    // Adds an empty entry for an entity in the storage.
+    pub fn addEmptyEntity(self: *Self, allocator: Allocator) !void {
+        try self._addEmptyEntity(self, allocator);
+    }
+
     /// Casts the erased sparse storage to its concrete type.
     pub fn toConcrete(ptr: *anyopaque, comptime Component: type) *SparseComponentStorage(Component) {
         return @ptrCast(@alignCast(ptr));
     }
 
-    /// Updates the component value for to `component` fo the given entity.
+    /// Updates the component value to `component` for the given entity.
     pub fn updateValue(self: *Self, comptime Component: type, entity: Entity, component: Component) void {
-        var concrete = Self.toConcrete(self.ptr, Component);
-        concrete.data.items[entity] = component;
+        var concrete = Self.toConcrete(self._ptr, Component);
+        concrete._data.items[entity] = component;
+    }
+
+    /// Removes an entity from the component storage.
+    pub fn removeEntity(self: *Self, comptime Component: type, entity: Entity) ?Component {
+        // Convert to concrete storage
+        var concrete = Self.toConcrete(self._ptr, Component);
+
+        // Remove and return the current component for the specified entity
+        var removed: Component = concrete._data.items[entity].?;
+        concrete._data.items[entity] = null;
+        return removed;
     }
 };
