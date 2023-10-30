@@ -5,7 +5,8 @@ const Hashmap = std.AutoArrayHashMapUnmanaged;
 const ErasedSparseStorage = storage.ErasedSparseStorage;
 const SparseStorage = storage.SparseComponentStorage;
 
-// NOTE: All `Component` types must have a `storage::StorageType` defined to be either `.Sparse` or `.Dense`.
+// NOTE: All `Component` types must have a `storage::StorageType` defined to be
+// either `.Sparse` or `.Dense`.
 
 /// Represents an entity in the world.
 pub const Entity = usize;
@@ -56,7 +57,7 @@ pub const World = struct {
         return entity;
     }
 
-    /// Adds the specified component the the entity.
+    /// Adds the specified component to the entity.
     pub fn addComponentToEntity(self: *Self, entity: Entity, component: anytype) !void {
         const ComponentType = @TypeOf(component);
         const COMPONENT_HASH = std.hash_map.hashString(@typeName(ComponentType));
@@ -83,6 +84,26 @@ pub const World = struct {
         }
 
         // TODO: Add logic for dense/archetype storage
+    }
+
+    /// Removes the specified component type from the entity.
+    pub fn removeComponentFromEntity(self: *Self, comptime Component: type, entity: Entity) ?Component {
+        const COMPONENT_HASH = std.hash_map.hashString(@typeName(Component));
+
+        if (Component.StorageType == .Sparse) {
+            // Remove component if it exists for the specified component
+            if (self.sparse_components.contains(COMPONENT_HASH)) {
+                var concrete = ErasedSparseStorage.toConcrete(self.sparse_components.getPtr(COMPONENT_HASH).?.ptr, Component);
+                var removed: Component = concrete.data.items[entity].?;
+                concrete.data.items[entity] = null;
+                return removed;
+            }
+
+            return null;
+        }
+
+        // TODO: Add `Dense` logic
+
     }
 
     /// Gets the entity's value for the component of the specified type.
@@ -158,4 +179,32 @@ test "Can get component for entity" {
     try world.addComponentToEntity(entity, TestStruct{ .val = 99 });
     test_struct = world.getComponentForEntity(TestStruct, entity).?;
     try testing.expectEqual(test_struct.val, 99);
+}
+
+test "Can remove component from entity" {
+    const testing = std.testing;
+    const allocator = testing.allocator;
+
+    const TestStruct = struct {
+        const StorageType: storage.StorageType = .Sparse;
+        val: i32,
+    };
+
+    const TestStruct2 = struct {
+        const StorageType: storage.StorageType = .Sparse;
+        val: u32,
+    };
+
+    var world = World.init(allocator);
+    defer world.deinit();
+
+    var entity = try world.spawn();
+    try world.addComponentToEntity(entity, TestStruct{ .val = 42 });
+    try world.addComponentToEntity(entity, TestStruct2{ .val = 99 });
+
+    var removed_component: TestStruct = world.removeComponentFromEntity(TestStruct, entity).?;
+    try testing.expectEqual(removed_component.val, 42);
+
+    var removed_component2: TestStruct2 = world.removeComponentFromEntity(TestStruct2, entity).?;
+    try testing.expectEqual(removed_component2.val, 99);
 }

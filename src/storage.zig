@@ -21,9 +21,6 @@ pub fn SparseComponentStorage(comptime Component: type) type {
     return struct {
         const Self = @This();
 
-        /// The total number of entities with this component type.
-        num_entities: usize,
-
         /// The sparsely stored component data.
         data: ArrayListUnmanaged(?Component) = .{},
 
@@ -36,7 +33,6 @@ pub fn SparseComponentStorage(comptime Component: type) type {
             }
 
             return .{
-                .num_entities = num_entities,
                 .data = data,
             };
         }
@@ -44,7 +40,6 @@ pub fn SparseComponentStorage(comptime Component: type) type {
         /// Frees memory used by the storage.
         pub fn deinit(self: *Self, allocator: Allocator) void {
             self.data.deinit(allocator);
-            self.num_entities = 0;
         }
     };
 }
