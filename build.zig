@@ -15,6 +15,7 @@ pub fn build(b: *std.Build) void {
     const lib_mod = b.addModule("magics", .{
         .source_file = .{ .path = "src/lib.zig" },
     });
+    _ = lib_mod;
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -24,7 +25,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     const unit_tests_runner = b.addRunArtifact(unit_tests);
-    unit_tests_runner.has_side_effects = true;
+    // unit_tests_runner.has_side_effects = true;
 
     // Creates a step for integration testing. This only builds the test
     // executable but does not run it.
@@ -33,7 +34,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    integration_tests.addModule("magics", lib_mod);
     const integration_tests_runner = b.addRunArtifact(integration_tests);
     integration_tests_runner.has_side_effects = true;
 

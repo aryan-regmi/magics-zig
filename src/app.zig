@@ -40,7 +40,7 @@ pub const App = struct {
     pub fn init(allocator: Allocator, opts: AppOpts) Self {
         return .{
             ._allocator = allocator,
-            ._world = World.init(),
+            ._world = World.init(allocator),
             ._scheduler = Scheduler{ .type = opts.scheduler_type },
         };
     }
@@ -51,11 +51,14 @@ pub const App = struct {
         self._sparse_component_storages.deinit(self._allocator);
         // Deinit the scheduler
         self._scheduler.deinit(self._allocator);
+        // Deinit the world
+        self._world.deinit();
     }
 
     /// Runs the systems added to the ECS.
     pub fn run(self: *Self) !void {
-        try self._scheduler.run();
+        var ctx = Context._init(&self._world);
+        try self._scheduler.run(&ctx);
     }
 
     // TODO: Add stages to run ordered systems
@@ -88,14 +91,14 @@ test "Can run systems" {
     const ALLOC = testing.allocator;
 
     const SYSTEMS = struct {
-        pub fn system1(ctx: Context) !void {
+        pub fn system1(ctx: *Context) !void {
             _ = ctx;
-            std.debug.print("Sys1\n", .{});
+            // std.debug.print("Sys1\n", .{});
         }
 
-        pub fn system2(ctx: Context) !void {
+        pub fn system2(ctx: *Context) !void {
             _ = ctx;
-            std.debug.print("Sys2\n", .{});
+            // std.debug.print("Sys2\n", .{});
         }
     };
 

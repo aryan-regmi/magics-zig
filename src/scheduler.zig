@@ -37,10 +37,9 @@ pub const Scheduler = struct {
     }
 
     /// Runs the systems in the scheduler.
-    pub fn run(self: *Self) !void {
+    pub fn run(self: *Self, ctx: *context.Context) !void {
         if (self.type == .SingleThreaded) {
             for (self.systems.items) |system| {
-                var ctx = context.Context{};
                 try system(ctx);
             }
         }
@@ -50,4 +49,4 @@ pub const Scheduler = struct {
 };
 
 /// A function that can be run by the ECS.
-pub const System = *const fn (ctx: context.Context) anyerror!void;
+pub const System = *const fn (ctx: *context.Context) anyerror!void;

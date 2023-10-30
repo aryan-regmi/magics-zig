@@ -51,8 +51,11 @@ pub const ErasedSparseStorage = struct {
     /// Points the the concrete `SparseComponentStorage`.
     _ptr: *anyopaque,
 
-    /// Function to add an empty entry in the storage.
+    /// Adds an empty entry in the storage.
     _addEmptyEntity: *const fn (self: *Self, allocator: Allocator) anyerror!void,
+
+    /// Removes an entity from the storage if component type is unknown.
+    _removeEntityErased: *const fn (self: *Self, entity: Entity) ?void,
 
     /// Frees memory used by the storage.
     _deinit: *const fn (self: *Self, allocator: Allocator) void,
@@ -70,6 +73,11 @@ pub const ErasedSparseStorage = struct {
                     try concrete._data.append(allocator_, null);
                 }
             }).addEmptyEntity,
+            ._removeEntityErased = (struct {
+                pub fn removeEntityErased(self: *Self, entity: Entity) ?void {
+                    _ = self.removeEntity(Component, entity) orelse return null;
+                }
+            }).removeEntityErased,
             ._deinit = (struct {
                 pub fn deinit(self: *Self, allocator_: Allocator) void {
                     var concrete = Self.toConcrete(self._ptr, Component);
@@ -90,6 +98,13 @@ pub const ErasedSparseStorage = struct {
         try self._addEmptyEntity(self, allocator);
     }
 
+    /// Removes the entity from the storage when the storage type is unknown.
+    pub fn removeEntityErased(self: *Self, entity: Entity) ?void {
+        return self._removeEntityErased(self, entity);
+    }
+
+    // TODO: Make this a method! (take in self)
+    //
     /// Casts the erased sparse storage to its concrete type.
     pub fn toConcrete(ptr: *anyopaque, comptime Component: type) *SparseComponentStorage(Component) {
         return @ptrCast(@alignCast(ptr));
@@ -107,7 +122,7 @@ pub const ErasedSparseStorage = struct {
         var concrete = Self.toConcrete(self._ptr, Component);
 
         // Remove and return the current component for the specified entity
-        var removed: Component = concrete._data.items[entity].?;
+        var removed: Component = concrete._data.items[entity] orelse return null;
         concrete._data.items[entity] = null;
         return removed;
     }
