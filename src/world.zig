@@ -80,8 +80,7 @@ pub const World = struct {
         }
 
         // Add empty entry to entity map
-        var associated_components = try ArrayList(ComponentHash).initCapacity(self._allocator, 1);
-        try self._entity_map.put(self._allocator, entity, associated_components);
+        try self._entity_map.put(self._allocator, entity, .{});
 
         self._total_entities += 1;
         return entity;
@@ -123,6 +122,9 @@ pub const World = struct {
                 // Update the component value
                 var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(COMPONENT_HASH).?;
                 erased_storage.updateValue(ComponentType, entity, component);
+
+                std.debug.print("Here: {}\n", .{COMPONENT_HASH});
+
                 return;
             }
 

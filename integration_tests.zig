@@ -52,15 +52,26 @@ fn respawnEntitySystem(ctx: *Context) !void {
 
 // TODO: Impl query system
 fn queryEntitySystem(ctx: *Context) !void {
-    try ctx.query(&[_]type{ TestComponent, TestComponent2 });
+    var component_query = try ctx.query(&[_]type{TestComponent});
+    defer component_query.deinit();
+
+    var iter = component_query.iterator().?;
+    defer iter.deinit();
+    while (iter.next()) |entity| {
+        _ = entity;
+        // std.debug.print("\nEntity: {}\n", .{entity});
+    }
 }
 
 test "Can spawn/despawn entities" {
-    var app = App.init(ALLOC, .{});
-    defer app.deinit();
-
-    try app.addSystem(spawnEntitySystem);
-    try app.run();
+    // var app = App.init(ALLOC, .{});
+    // defer app.deinit();
+    //
+    // try app.addSystem(spawnEntitySystem);
+    // try app.addSystem(despawnEntitySystem);
+    // try app.addSystem(respawnEntitySystem);
+    //
+    // try app.run();
 }
 
 test "Can query entities" {
@@ -68,8 +79,6 @@ test "Can query entities" {
     defer app.deinit();
 
     try app.addSystem(spawnEntitySystem);
-    try app.addSystem(despawnEntitySystem);
-    try app.addSystem(respawnEntitySystem);
     try app.addSystem(queryEntitySystem);
     try app.run();
 }

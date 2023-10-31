@@ -57,6 +57,9 @@ pub const ErasedSparseStorage = struct {
     /// Removes an entity from the storage if component type is unknown.
     _removeEntityErased: *const fn (self: *Self, entity: Entity) ?void,
 
+    // // Gets the component value for the specified entity.
+    // _getComponentValue: *const fn (self: *Self, comptime Compo entity: Entity) type,
+
     /// Frees memory used by the storage.
     _deinit: *const fn (self: *Self, allocator: Allocator) void,
 

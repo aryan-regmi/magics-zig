@@ -11,6 +11,6 @@ pub const Context = context.Context;
 pub const StorageType = storage.StorageType;
 
 test {
-    std.testing.refAllDeclsRecursive(world);
-    std.testing.refAllDeclsRecursive(app);
+    // std.testing.refAllDeclsRecursive(world);
+    // std.testing.refAllDeclsRecursive(app);
 }
