@@ -121,16 +121,21 @@ pub const World = struct {
             if (self._sparse_components.contains(COMPONENT_HASH)) {
                 // Update the component value
                 var erased_storage: *ErasedSparseStorage = self._sparse_components.getPtr(COMPONENT_HASH).?;
-                erased_storage.updateValue(ComponentType, entity, component);
 
-                std.debug.print("Here: {}\n", .{COMPONENT_HASH});
+                if (!erased_storage.valueExists(entity)) {
+                    // Update entity map
+                    var associated_components: *ArrayList(ComponentHash) = self._entity_map.getPtr(entity).?;
+                    try associated_components.append(self._allocator, COMPONENT_HASH);
+                }
+
+                erased_storage.updateValue(ComponentType, entity, component);
 
                 return;
             }
 
             // Create new component type storage
             var new_storage = try ErasedSparseStorage.init(ComponentType, self._allocator, self._total_entities);
-            new_storage.updateValue(ComponentType, entity, component);
+            _ = new_storage.updateValue(ComponentType, entity, component);
             try self._sparse_components.put(self._allocator, COMPONENT_HASH, new_storage);
 
             // Update entity map

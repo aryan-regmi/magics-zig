@@ -57,6 +57,9 @@ pub const ErasedSparseStorage = struct {
     /// Removes an entity from the storage if component type is unknown.
     _removeEntityErased: *const fn (self: *Self, entity: Entity) ?void,
 
+    // TODO: Add func to check if value exists for an entity
+    _valueExists: *const fn (self: *Self, entity: Entity) bool,
+
     // // Gets the component value for the specified entity.
     // _getComponentValue: *const fn (self: *Self, comptime Compo entity: Entity) type,
 
@@ -81,6 +84,12 @@ pub const ErasedSparseStorage = struct {
                     _ = self.removeEntity(Component, entity) orelse return null;
                 }
             }).removeEntityErased,
+            ._valueExists = (struct {
+                pub fn valueExists(self: *Self, entity: Entity) bool {
+                    var concrete = self.toConcrete(Component);
+                    return concrete._data.items[entity] != null;
+                }
+            }).valueExists,
             ._deinit = (struct {
                 pub fn deinit(self: *Self, allocator_: Allocator) void {
                     var concrete = self.toConcrete(Component);
@@ -96,6 +105,11 @@ pub const ErasedSparseStorage = struct {
         self._deinit(self, allocator);
     }
 
+    /// Casts the erased sparse storage to its concrete type.
+    pub fn toConcrete(self: *Self, comptime Component: type) *SparseComponentStorage(Component) {
+        return @ptrCast(@alignCast(self._ptr));
+    }
+
     // Adds an empty entry for an entity in the storage.
     pub fn addEmptyEntity(self: *Self, allocator: Allocator) !void {
         try self._addEmptyEntity(self, allocator);
@@ -106,9 +120,9 @@ pub const ErasedSparseStorage = struct {
         return self._removeEntityErased(self, entity);
     }
 
-    /// Casts the erased sparse storage to its concrete type.
-    pub fn toConcrete(self: *Self, comptime Component: type) *SparseComponentStorage(Component) {
-        return @ptrCast(@alignCast(self._ptr));
+    /// Checks if a value exists.
+    pub fn valueExists(self: *Self, entity: Entity) bool {
+        return self._valueExists(self, entity);
     }
 
     /// Updates the component value to `component` for the given entity.

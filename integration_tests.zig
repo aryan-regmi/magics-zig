@@ -64,14 +64,14 @@ fn queryEntitySystem(ctx: *Context) !void {
 }
 
 test "Can spawn/despawn entities" {
-    // var app = App.init(ALLOC, .{});
-    // defer app.deinit();
-    //
-    // try app.addSystem(spawnEntitySystem);
-    // try app.addSystem(despawnEntitySystem);
-    // try app.addSystem(respawnEntitySystem);
-    //
-    // try app.run();
+    var app = App.init(ALLOC, .{});
+    defer app.deinit();
+
+    try app.addSystem(spawnEntitySystem);
+    try app.addSystem(despawnEntitySystem);
+    try app.addSystem(respawnEntitySystem);
+
+    try app.run();
 }
 
 test "Can query entities" {
