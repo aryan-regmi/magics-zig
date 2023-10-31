@@ -50,16 +50,19 @@ fn respawnEntitySystem(ctx: *Context) !void {
     try testing.expectEqual(ctx.totalNumEntities(), 3);
 }
 
-// TODO: Impl query system
 fn queryEntitySystem(ctx: *Context) !void {
-    var component_query = try ctx.query(&[_]type{TestComponent});
+    var component_query = try ctx.query(&[_]type{ TestComponent, TestComponent2 });
     defer component_query.deinit();
 
     var iter = component_query.iterator().?;
     defer iter.deinit();
     while (iter.next()) |entity| {
-        _ = entity;
-        // std.debug.print("\nEntity: {}\n", .{entity});
+        var component_val = ctx.getComponent(TestComponent, entity).?;
+        if (entity == 0) {
+            try testing.expectEqual(component_val.val, 42);
+        } else if (entity == 1) {
+            try testing.expectEqual(component_val.val, 99);
+        }
     }
 }
 
