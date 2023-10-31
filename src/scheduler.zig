@@ -9,6 +9,34 @@ pub const SchedulerType = enum {
     MultiThreaded,
 };
 
+/// Options for adding a system.
+pub const SystemOpts = struct {
+    /// Possible update types for a system.
+    pub const UpdateType = enum {
+        /// Run only once at initialization.
+        Setup,
+
+        /// Run as much as possible per frame.
+        Update,
+
+        /// Run at a fixed (specified) rate.
+        FixedUpdate,
+    };
+
+    /// The update type of the system.
+    ///
+    /// Defaults to `Update`.
+    update_type: UpdateType = .Update,
+
+    /// FPS for `FixedUpdate`.
+    ///
+    /// Defaults to 60 fps.
+    fixed_update_rate: usize = 60,
+
+    /// Name of the system (used for ordering).
+    name: *const []u8,
+};
+
 // TODO: Make this multi-threaded!
 // TODO: Add stages to run ordered systems
 //

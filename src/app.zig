@@ -16,6 +16,7 @@ const ErasedSparseStorage = storage.ErasedSparseStorage;
 
 // TODO: Add dense/arcehtype storage
 
+/// Options for initalizing an app.
 const AppOpts = struct {
     scheduler_type: SchedulerType = .SingleThreaded,
 };
