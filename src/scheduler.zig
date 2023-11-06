@@ -34,7 +34,7 @@ pub const SystemOpts = struct {
     fixed_update_rate: usize = 60,
 
     /// Name of the system (used for ordering).
-    name: *const []u8,
+    name: []const u8,
 };
 
 // TODO: Make this multi-threaded!
@@ -56,7 +56,8 @@ pub const Scheduler = struct {
     }
 
     /// Adds a system to the scheduler.
-    pub fn addSystem(self: *Self, allocator: Allocator, system: System) !void {
+    pub fn addSystem(self: *Self, allocator: Allocator, system: System, opts: SystemOpts) !void {
+        _ = opts;
         if (self.type == .SingleThreaded) {
             try self.systems.append(allocator, system);
         }

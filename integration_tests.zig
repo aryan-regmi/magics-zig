@@ -70,9 +70,9 @@ test "Can spawn/despawn entities" {
     var app = App.init(ALLOC, .{});
     defer app.deinit();
 
-    try app.addSystem(spawnEntitySystem);
-    try app.addSystem(despawnEntitySystem);
-    try app.addSystem(respawnEntitySystem);
+    try app.addSystem(spawnEntitySystem, .{ .name = "spawn" });
+    try app.addSystem(despawnEntitySystem, .{ .name = "despawn" });
+    try app.addSystem(respawnEntitySystem, .{ .name = "respawn" });
 
     try app.run();
 }
@@ -81,7 +81,7 @@ test "Can query entities" {
     var app = App.init(ALLOC, .{});
     defer app.deinit();
 
-    try app.addSystem(spawnEntitySystem);
-    try app.addSystem(queryEntitySystem);
+    try app.addSystem(spawnEntitySystem, .{ .name = "spawn" });
+    try app.addSystem(queryEntitySystem, .{ .name = "query" });
     try app.run();
 }

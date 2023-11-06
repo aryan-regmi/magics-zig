@@ -9,6 +9,7 @@ const Context = context.Context;
 const System = scheduler.System;
 const Scheduler = scheduler.Scheduler;
 const SchedulerType = scheduler.SchedulerType;
+const SystemOpts = scheduler.SystemOpts;
 const World = world.World;
 const Entity = world.Entity;
 const ComponentHash = world.ComponentHash;
@@ -63,8 +64,8 @@ pub const App = struct {
     }
 
     // TODO: Add stages to run ordered systems
-    pub fn addSystem(self: *Self, system: System) !void {
-        try self._scheduler.addSystem(self._allocator, system);
+    pub fn addSystem(self: *Self, system: System, opts: SystemOpts) !void {
+        try self._scheduler.addSystem(self._allocator, system, opts);
     }
 };
 
@@ -105,7 +106,7 @@ test "Can run systems" {
 
     var app = App.init(ALLOC, .{});
     defer app.deinit();
-    try app.addSystem(SYSTEMS.system1);
-    try app.addSystem(SYSTEMS.system2);
+    try app.addSystem(SYSTEMS.system1, .{ .name = "system1" });
+    try app.addSystem(SYSTEMS.system2, .{ .name = "system2" });
     try app.run();
 }
