@@ -17,6 +17,8 @@ const Entity = world.Entity;
 pub const StorageType = enum { Sparse, Dense };
 
 /// Storage for a single type of component, where the entity data is stored sparsely.
+///
+/// This is optimized for insertions and deletions.
 pub fn SparseComponentStorage(comptime Component: type) type {
     return struct {
         const Self = @This();
@@ -140,5 +142,68 @@ pub const ErasedSparseStorage = struct {
         var removed: Component = concrete._data.items[entity] orelse return null;
         concrete._data.items[entity] = null;
         return removed;
+    }
+};
+
+/// Storage for a single type of component, where the entity data is stored densely.
+///
+/// This is optimized for iteration, while insertions and deletions are slower.
+pub fn DenseComponentStorage(comptime Component: type) type {
+    return struct {
+        const Self = @This();
+
+        /// The densely stored component data.
+        _data: ArrayListUnmanaged(Component) = .{},
+
+        /// Create new `DenseComponentStorage`.
+        pub fn init(allocator: Allocator, num_entities: usize) !Self {
+            var data = try ArrayListUnmanaged(Component).initCapacity(allocator, num_entities);
+            return .{
+                ._data = data,
+            };
+        }
+
+        /// Frees memory used by the storage.
+        pub fn deinit(self: *Self, allocator: Allocator) void {
+            self._data.deinit(allocator);
+        }
+    };
+}
+
+/// A type erased `DenseComponentStorage` for optimized for dense storage.
+pub const ErasedDenseStorage = struct {
+    const Self = @This();
+
+    /// Points the the concrete `DenseComponentStorage`.
+    _ptr: *anyopaque,
+
+    /// Frees memory used by the storage.
+    _deinit: *const fn (self: *Self, allocator: Allocator) void,
+
+    /// Initialize a new dense storage, return the dense storage pointing at it.
+    pub fn init(comptime Component: type, allocator: Allocator, num_entities: usize) !Self {
+        var ptr = try allocator.create(DenseComponentStorage(Component));
+        ptr.* = try DenseComponentStorage(Component).init(allocator, num_entities);
+
+        return .{
+            ._ptr = ptr,
+            ._deinit = (struct {
+                pub fn deinit(self: *Self, allocator_: Allocator) void {
+                    var concrete = self.toConcrete(Component);
+                    concrete.deinit(allocator_);
+                    allocator_.destroy(concrete);
+                }
+            }).deinit,
+        };
+    }
+
+    /// Frees the memory used by the underlying dense storage.
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self._deinit(self, allocator);
+    }
+
+    /// Casts the erased dense storage to its concrete type.
+    pub fn toConcrete(self: *Self, comptime Component: type) *DenseComponentStorage(Component) {
+        return @ptrCast(@alignCast(self._ptr));
     }
 };
