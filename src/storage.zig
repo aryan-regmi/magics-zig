@@ -1,8 +1,11 @@
 const std = @import("std");
 const world = @import("world.zig");
 const Allocator = std.mem.Allocator;
-const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayListUnmanaged;
+const HashMap = std.AutoArrayHashMapUnmanaged;
 const Entity = world.Entity;
+const ComponentHash = world.ComponentHash;
+const ArchetypeHash = world.ArchetypeHash;
 
 /// Determines the type of storage for a component type.
 ///
@@ -24,12 +27,12 @@ pub fn SparseComponentStorage(comptime Component: type) type {
         const Self = @This();
 
         /// The sparsely stored component data.
-        _data: ArrayListUnmanaged(?Component) = .{},
+        _data: ArrayList(?Component) = .{},
 
         /// Create new `SparseComponentStorage`.
         pub fn init(allocator: Allocator, num_entities: usize) !Self {
             // Create new array list and initalize values to `null`
-            var data = try ArrayListUnmanaged(?Component).initCapacity(allocator, num_entities);
+            var data = try ArrayList(?Component).initCapacity(allocator, num_entities);
             for (0..num_entities) |_| {
                 try data.append(allocator, null);
             }
@@ -153,11 +156,11 @@ pub fn DenseComponentStorage(comptime Component: type) type {
         const Self = @This();
 
         /// The densely stored component data.
-        _data: ArrayListUnmanaged(Component) = .{},
+        _data: ArrayList(Component) = .{},
 
         /// Create new `DenseComponentStorage`.
         pub fn init(allocator: Allocator, num_entities: usize) !Self {
-            var data = try ArrayListUnmanaged(Component).initCapacity(allocator, num_entities);
+            var data = try ArrayList(Component).initCapacity(allocator, num_entities);
             return .{
                 ._data = data,
             };
@@ -206,4 +209,78 @@ pub const ErasedDenseStorage = struct {
     pub fn toConcrete(self: *Self, comptime Component: type) *DenseComponentStorage(Component) {
         return @ptrCast(@alignCast(self._ptr));
     }
+
+    /// Updates the component value at the given index.
+    pub fn updateValue(self: *Self, comptime Component: type, idx: usize, component: Component) void {
+        var concrete = self.toConcrete(Component);
+        concrete._data[idx] = component;
+    }
 };
+
+/// Storage for archetypes.
+pub const ArchetypeStorage = struct {
+    const Self = @This();
+
+    /// The identifying hash of the archetype.
+    _hash: ArchetypeHash,
+
+    /// The number of components with this archetype.
+    _num_components: usize = 0,
+
+    /// A list of references to sparse component storages of the archetype.
+    _sparse_components: ArrayList(*ErasedSparseStorage) = .{},
+
+    /// The dense component storages of the archetype.
+    _dense_components: HashMap(ComponentHash, ErasedDenseStorage) = .{},
+
+    /// List of component types in the archetype.
+    _component_types: ArrayList(ComponentHash) = .{},
+
+    /// Creates new (empty) archetype storage.
+    pub fn init(hash: u64) Self {
+        return Self{ ._hash = hash };
+    }
+
+    /// Frees the memory used by the archetype storage.
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        // Free sparse components
+        self._sparse_components.deinit(allocator);
+
+        // Free dense components
+        for (self._dense_components.keys()) |component_type| {
+            var dense_component: *ErasedDenseStorage = self._dense_components.getPtr(component_type).?;
+            dense_component.deinit(allocator);
+        }
+        self._dense_components.deinit(allocator);
+    }
+
+    /// Gets the hash of the archetype.
+    pub fn getHash(self: *Self) ArchetypeHash {
+        return self._hash;
+    }
+
+    /// Gets the number of components in the archetype.
+    pub fn getNumComponents(self: *Self) usize {
+        return self._num_components;
+    }
+
+    /// Checks if the archetype has the specified component.
+    pub fn hasComponentType(self: *Self, component_hash: ComponentHash) bool {
+        for (self._component_types) |component_type| {
+            if (component_type == component_hash) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Updates the component value at the given index.
+    pub fn updateComponentValue(self: *Self, comptime Component: type, idx: usize, component: Component) void {
+        const COMPONENT_HASH = std.hash_map.hashString(@typeName(Component));
+        var dense_storage: *ErasedDenseStorage = self._dense_components.getPtr(COMPONENT_HASH).?;
+        dense_storage.updateValue(Component, idx, component);
+    }
+};
+
+/// Hash of empty archetype.
+pub const EMPTY_ARCHETYPE_HASH = std.math.maxInt(u64);

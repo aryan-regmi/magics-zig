@@ -5,6 +5,7 @@ const ArrayList = std.ArrayListUnmanaged;
 const HashMap = std.AutoHashMapUnmanaged;
 const ComponentHash = world_.ComponentHash;
 const Entity = world_.Entity;
+const EntityInfo = world_.EntityInfo;
 const World = world_.World;
 
 pub const Query = struct {
@@ -77,7 +78,8 @@ pub const Query = struct {
             var is_valid: usize = 0;
 
             // Loop through all associated components of the entity to check if the entity has all of them
-            var associated_components: *ArrayList(ComponentHash) = self._world._entity_map.getPtr(entity).?;
+            const entity_info: *EntityInfo = self._world._entity_map.getPtr(entity).?;
+            const associated_components = entity_info.getAssociatedComponents();
             for (associated_components.items) |associated_component| {
                 for (self._queried_hashes.items) |queried_component| {
                     // Increment if a match is found

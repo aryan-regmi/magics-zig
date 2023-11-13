@@ -5,6 +5,7 @@ const ArrayList = std.ArrayListUnmanaged;
 const Hashmap = std.AutoArrayHashMapUnmanaged;
 const ErasedSparseStorage = storage.ErasedSparseStorage;
 const SparseStorage = storage.SparseComponentStorage;
+const ArchetypeStorage = storage.ArchetypeStorage;
 
 // NOTE: All `Component` types must have a `storage::StorageType` defined to be
 // either `.Sparse` or `.Dense`.
@@ -14,6 +15,53 @@ pub const Entity = usize;
 
 /// The hash of a component type.
 pub const ComponentHash = u64;
+
+/// The hash of an archetype.
+pub const ArchetypeHash = u64;
+
+/// Stores metadata about an entity.
+pub const EntityInfo = struct {
+    const Self = @This();
+
+    _archetype_hash: ArchetypeHash = storage.EMPTY_ARCHETYPE_HASH,
+    _archetype_idx: usize = 0,
+    _associated_components: ArrayList(ComponentHash) = .{},
+
+    /// Frees the associated components list.
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self._associated_components.deinit(allocator);
+    }
+
+    /// Gets the archetype hash of the entity.
+    pub fn getArchetypeHash(self: *Self) ArchetypeHash {
+        return self._archetype_hash;
+    }
+
+    /// Gets the archetype index of the entity.
+    pub fn getArchetypeIdx(self: *Self) ArchetypeHash {
+        return self._archetype_idx;
+    }
+
+    /// Gets the archetype index of the entity.
+    pub fn getAssociatedComponents(self: *Self) ArrayList(ComponentHash) {
+        return self._associated_components;
+    }
+
+    /// Adds an associated component to the entity.
+    pub fn addAssociatedComponent(self: *Self, allocator: Allocator, component_hash: ComponentHash) !void {
+        try self._associated_components.append(allocator, component_hash);
+    }
+
+    /// Updates the archetype of the entity to the given archetype hash.
+    pub fn updateArchetypeHash(self: *Self, archetype_hash: ArchetypeHash) void {
+        self._archetype_hash = archetype_hash;
+    }
+
+    /// Updates the archetype index of the entity to the given index.
+    pub fn updateArchetypeIdx(self: *Self, idx: usize) void {
+        self._archetype_idx = idx;
+    }
+};
 
 /// The world that contains all entities and their components in the ECS.
 pub const World = struct {
@@ -28,15 +76,24 @@ pub const World = struct {
     /// Sparse component storages.
     _sparse_components: Hashmap(ComponentHash, ErasedSparseStorage) = .{},
 
+    /// Stores the archetypes.
+    _archetype_storages: Hashmap(ArchetypeHash, ArchetypeStorage),
+
     /// List of entities removed from the world.
     _removed_entities: ArrayList(Entity) = .{},
 
-    /// Map of entities to their associated component types.
-    _entity_map: Hashmap(Entity, ArrayList(ComponentHash)) = .{},
+    /// Tracks entity metadata.
+    _entity_map: Hashmap(Entity, EntityInfo) = .{},
 
     /// Creates new `World`.
     pub fn init(allocator: Allocator) Self {
-        return Self{ ._allocator = allocator };
+        var archetype_storages: Hashmap(ArchetypeHash, ArchetypeStorage) = .{};
+        archetype_storages.put(allocator, storage.EMPTY_ARCHETYPE_HASH, ArchetypeStorage.init(storage.EMPTY_ARCHETYPE_HASH)) catch unreachable;
+
+        return Self{
+            ._allocator = allocator,
+            ._archetype_storages = archetype_storages,
+        };
     }
 
     /// Destroys the world and frees any allocations it made.
@@ -47,6 +104,13 @@ pub const World = struct {
             erased_storage.deinit(self._allocator);
         }
         self._sparse_components.deinit(self._allocator);
+
+        // Free archetype storages
+        for (self._archetype_storages.keys()) |archetype| {
+            var archetype_storage: *ArchetypeStorage = self._archetype_storages.getPtr(archetype).?;
+            archetype_storage.deinit(self._allocator);
+        }
+        self._archetype_storages.deinit(self._allocator);
 
         // Free removed entities list
         self._removed_entities.deinit(self._allocator);
@@ -100,9 +164,16 @@ pub const World = struct {
         try self._removed_entities.append(self._allocator, entity);
 
         // Update entity map
-        var associated_components = self._entity_map.getPtr(entity).?;
-        associated_components.deinit(self._allocator);
+        var entity_info = self._entity_map.getPtr(entity).?;
+        entity_info.deinit(self._allocator);
         _ = self._entity_map.swapRemove(entity);
+    }
+
+    /// Gets the archetype of the entity.
+    fn getEntityArchetype(self: *Self, entity: Entity) ?*ArchetypeStorage {
+        var entity_info: *EntityInfo = self._entity_map.getPtr(entity).?;
+        const entity_hash = entity_info._archetype_hash;
+        return self._archetype_storages.getPtr(entity_hash).?;
     }
 
     /// Adds the specified component to the entity.
@@ -124,8 +195,8 @@ pub const World = struct {
 
                 if (!erased_storage.valueExists(entity)) {
                     // Update entity map
-                    var associated_components: *ArrayList(ComponentHash) = self._entity_map.getPtr(entity).?;
-                    try associated_components.append(self._allocator, COMPONENT_HASH);
+                    var entity_info: *EntityInfo = self._entity_map.getPtr(entity).?;
+                    try entity_info.addAssociatedComponent(self._allocator, COMPONENT_HASH);
                 }
 
                 erased_storage.updateValue(ComponentType, entity, component);
@@ -139,11 +210,30 @@ pub const World = struct {
             try self._sparse_components.put(self._allocator, COMPONENT_HASH, new_storage);
 
             // Update entity map
-            var associated_components: *ArrayList(ComponentHash) = self._entity_map.getPtr(entity).?;
-            try associated_components.append(self._allocator, COMPONENT_HASH);
-        }
+            var entity_info: *EntityInfo = self._entity_map.getPtr(entity).?;
+            try entity_info.addAssociatedComponent(self._allocator, COMPONENT_HASH);
+        } else {
+            var entity_info: *EntityInfo = self._entity_map.getPtr(entity).?;
+            const entity_archetype = self.getEntityArchetype(entity).?;
+            const entity_hash = entity_archetype.getHash();
 
-        // TODO: Add logic for dense/archetype storage
+            // Calculate new archetype hash
+            const archetype_has_component = entity_archetype.hasComponentType(COMPONENT_HASH);
+            const new_hash = if (archetype_has_component) entity_hash else entity_hash ^ COMPONENT_HASH;
+
+            // If entity already has correct archetype, then just update existing value
+            if (entity_hash == new_hash) {
+                entity_archetype.updateComponentValue(ComponentType, entity_info.getArchetypeIdx(), component);
+            }
+
+            // TODO: Add logic for dense/archetype storage
+            //
+            // 1) Get archetype hash (COMPONENT_HASH) and check if it already exists in the world
+            //  - Create new archetype storage if one doesn't exist
+            //  - Check if the entity already has the archetype if it exists
+            //
+            //  2) If entity has another archetype already, calculate new hash
+        }
     }
 
     /// Removes the specified component type from the entity.
